@@ -1,37 +1,16 @@
-import { readFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import type * as Module from "./ArticleFollowUpRepository";
+import type { Client } from "@libsql/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { openAgencyTestDb } from "./agency-test-schema";
 
 vi.mock("cloudflare:workers", () => ({ env: { DATABASE_PROVIDER: "d1" } }));
-const testDir = mkdtempSync(join(tmpdir(), "openseo-followups-"));
-const testFile = join(testDir, "test.db");
 let client: Client;
-let repo: typeof import("./ArticleFollowUpRepository").ArticleFollowUpRepository;
+let repo: typeof Module.ArticleFollowUpRepository;
 
 beforeAll(async () => {
-  client = createClient({ url: "file:" + testFile.replaceAll("\\", "/") });
-  const testDb = drizzle(client);
-  vi.doMock("@/db", () => ({ db: testDb }));
-  await client.executeMultiple(
-    "PRAGMA foreign_keys=ON; CREATE TABLE projects(id text PRIMARY KEY); INSERT INTO projects VALUES ('p1'),('p2');" +
-      [
-        "0045_content_execution",
-        "0046_execution_board",
-        "0047_content_autopilot",
-        "0048_content_learning",
-        "0049_optional_delivery",
-        "0053_article_passage_comments",
-        "0054_feedback_edit_token",
-        "0055_article_approval_reopen",
-        "0057_nifty_skin",
-        "0059_pale_gargoyle",
-      ]
-        .map((name) => readFileSync(`drizzle/${name}.sql`, "utf8"))
-        .join(""),
-  );
+  const test = await openAgencyTestDb();
+  client = test.client;
+  vi.doMock("@/db", () => ({ db: test.db }));
   repo = (await import("./ArticleFollowUpRepository"))
     .ArticleFollowUpRepository;
 });

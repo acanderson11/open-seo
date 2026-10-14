@@ -303,55 +303,7 @@ export function ExecutionPlan({ projectId }: { projectId: string }) {
           )}
         </details>
       </section>
-      <details className="border-t border-base-300 pt-5">
-        <summary className="cursor-pointer text-lg font-semibold">
-          Evidence coverage
-          <span className="mt-1 block text-sm font-normal text-base-content/60">
-            Search {plan.search.available ? "available" : "unavailable"} · audit{" "}
-            {plan.audit.state.replaceAll("_", " ")} · conversion evidence{" "}
-            {plan.conversions.available ? "available" : "unavailable"}
-          </span>
-        </summary>
-        <p className="mt-2 text-sm text-base-content/70">
-          Check these sources when a suggestion seems uncertain. Missing data
-          means less confidence; it does not mean zero traffic or conversions.
-        </p>
-        <p className="text-sm mt-2">
-          Search:{" "}
-          {plan.search.available
-            ? `${plan.search.startDate}–${plan.search.endDate}; ${plan.search.rows.length} returned query/page rows (maximum 200).`
-            : "Unavailable; not zero traffic."}
-        </p>
-        <p className="text-sm mt-2">
-          Native audit: {plan.audit.state} · {plan.audit.pages} pages ·{" "}
-          {plan.inventory.auditAt || "No dated audit"}.
-        </p>
-        <p className="text-sm mt-2">
-          {plan.conversions.available
-            ? `GSC/GA4 opportunity report: ${plan.conversions.request.dateRange.startDate}–${plan.conversions.request.dateRange.endDate}. ${plan.conversions.rows.length} candidate pages. Business-value metric: ${plan.conversions.metric}${plan.conversions.limited ? " (limited data)" : ""}.`
-            : "Joined conversion evidence unavailable. Do not infer zero conversions."}
-        </p>
-        {plan.conversions.available && (
-          <details className="mt-2 text-sm">
-            <summary className="cursor-pointer">
-              View candidate-page conversion evidence
-            </summary>
-            <ul className="mt-2 space-y-2">
-              {plan.conversions.rows.map((row) => (
-                <li key={row.page} className="break-all">
-                  {row.page}: {row.sessions ?? "Unknown"} sessions ·{" "}
-                  {row.keyEvents ?? "Unknown"} key events
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2">
-              Key events depend on GA4 configuration and are not automatically
-              qualified leads. This candidate report does not represent every
-              page.
-            </p>
-          </details>
-        )}
-      </details>
+      <EvidenceCoverage plan={plan} />
       <details className="border-t border-base-300 pt-5">
         <summary className="cursor-pointer text-lg font-semibold">
           Investigate a topic or create a content brief
@@ -386,6 +338,60 @@ function ExistingWork({ plan }: { plan: Plan }) {
         <p className="text-sm mt-2">
           Recent tasks only; review the full board before committing work.
         </p>
+      )}
+    </details>
+  );
+}
+
+function EvidenceCoverage({ plan }: { plan: Plan }) {
+  return (
+    <details className="border-t border-base-300 pt-5">
+      <summary className="cursor-pointer text-lg font-semibold">
+        Evidence coverage
+        <span className="mt-1 block text-sm font-normal text-base-content/60">
+          Search {plan.search.available ? "available" : "unavailable"} · audit{" "}
+          {plan.audit.state.replaceAll("_", " ")} · conversion evidence{" "}
+          {plan.conversions.available ? "available" : "unavailable"}
+        </span>
+      </summary>
+      <p className="mt-2 text-sm text-base-content/70">
+        Check these sources when a suggestion seems uncertain. Missing data
+        means less confidence; it does not mean zero traffic or conversions.
+      </p>
+      <p className="text-sm mt-2">
+        Search:{" "}
+        {plan.search.available
+          ? `${plan.search.startDate}–${plan.search.endDate}; ${plan.search.rows.length} returned query/page rows (maximum 200).`
+          : "Unavailable; not zero traffic."}
+      </p>
+      <p className="text-sm mt-2">
+        Native audit: {plan.audit.state} · {plan.audit.pages} pages ·{" "}
+        {plan.inventory.auditAt || "No dated audit"}.
+      </p>
+      <p className="text-sm mt-2">
+        {plan.conversions.available
+          ? `GSC/GA4 opportunity report: ${plan.conversions.request.dateRange.startDate}–${plan.conversions.request.dateRange.endDate}. ${plan.conversions.rows.length} candidate pages. Business-value metric: ${plan.conversions.metric}${plan.conversions.limited ? " (limited data)" : ""}.`
+          : "Joined conversion evidence unavailable. Do not infer zero conversions."}
+      </p>
+      {plan.conversions.available && (
+        <details className="mt-2 text-sm">
+          <summary className="cursor-pointer">
+            View candidate-page conversion evidence
+          </summary>
+          <ul className="mt-2 space-y-2">
+            {plan.conversions.rows.map((row) => (
+              <li key={row.page} className="break-all">
+                {row.page}: {row.sessions ?? "Unknown"} sessions ·{" "}
+                {row.keyEvents ?? "Unknown"} key events
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2">
+            Key events depend on GA4 configuration and are not automatically
+            qualified leads. This candidate report does not represent every
+            page.
+          </p>
+        </details>
       )}
     </details>
   );

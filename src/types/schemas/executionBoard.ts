@@ -93,7 +93,8 @@ export function draftBoardStage(state: string): BoardStage {
     return "blocked";
   if (["awaiting_approval", "needs_revision", "draft_ready"].includes(state))
     return "review";
-  if (state === "ready_for_manual_publication") return "ready";
+  if (["ready_for_manual_publication", "ready_to_publish"].includes(state))
+    return "ready";
   if (state === "published") return "done";
   return "todo";
 }

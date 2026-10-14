@@ -75,14 +75,11 @@ it("uses dated site evidence if a fresh read is blocked", async () => {
     "https://example.com/",
     "example.com",
   );
-  expect(result.pages).toEqual([
-    {
-      url: "https://example.com/services",
-      text: expect.stringContaining(
-        "Historical site page captured 2025-01-01T12:00:00.000Z",
-      ),
-    },
-  ]);
+  expect(result.pages).toHaveLength(1);
+  expect(result.pages[0]?.url).toBe("https://example.com/services");
+  expect(result.pages[0]?.text).toContain(
+    "Historical site page captured 2025-01-01T12:00:00.000Z",
+  );
   expect(result.pages[0].text).toContain("Saved service information");
   expect(result.warning).toContain("verify current business facts");
   expect(m.pages).toHaveBeenCalledOnce();

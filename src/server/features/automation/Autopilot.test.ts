@@ -1,15 +1,16 @@
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { dueForDraft } from "@/types/schemas/autopilot";
+import type { AutomationRepository } from "./AutomationRepository";
 const m = vi.hoisted(() => ({
   claim: vi.fn(),
   job: vi.fn(),
   policy: vi.fn(),
   wordpress: vi.fn(),
-  update: vi.fn(),
+  update: vi.fn<typeof AutomationRepository.update>(),
   context: vi.fn(),
   project: vi.fn(),
   link: vi.fn(),
-  approve: vi.fn(),
+  approve: vi.fn<typeof AutomationRepository.approve>(),
   used: vi.fn(),
   image: vi.fn(),
   setMedia: vi.fn(),
@@ -116,21 +117,19 @@ it("does not send a WordPress request when publication is already claimed", asyn
   await publishApprovedDraft("p1", "j1");
   expect(fetch).not.toHaveBeenCalled();
 });
-it("blocks publishing when Context or connection version changed", async () => {
-  m.context.mockResolvedValue({ version: "changed" });
+it("blocks publishing when the WordPress connection changed after approval", async () => {
+  m.wordpress.mockResolvedValue({ ...(await m.wordpress()), version: "wp2" });
   const fetch = vi.fn();
   vi.stubGlobal("fetch", fetch);
   await publishApprovedDraft("p1", "j1");
   expect(fetch).not.toHaveBeenCalled();
-  expect(m.update).toHaveBeenCalledWith(
-    "p1",
-    "j1",
-    expect.objectContaining({ state: "publication_blocked" }),
-  );
+  const [, , update] = m.update.mock.lastCall ?? [];
+  expect(update).toMatchObject({ state: "publication_blocked" });
+  expect(update?.message).toContain("connection changed");
 });
 it("creates a WordPress draft then publishes that exact id", async () => {
   const fetch = vi
-    .fn()
+    .fn<typeof globalThis.fetch>()
     .mockResolvedValueOnce(
       Response.json({
         id: 7,
@@ -150,16 +149,14 @@ it("creates a WordPress draft then publishes that exact id", async () => {
   vi.stubGlobal("fetch", fetch);
   await publishApprovedDraft("p1", "j1");
   expect(fetch).toHaveBeenCalledTimes(2);
-  expect(fetch.mock.calls[0]?.[1]?.headers["user-agent"]).toBe("OpenSEO");
+  expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("user-agent")).toBe(
+    "OpenSEO",
+  );
   expect(fetch.mock.calls[1]?.[0]).toBe(
     "https://example.com/wp-json/wp/v2/posts/7",
   );
   expect(m.update).toHaveBeenCalledWith("p1", "j1", { wordpressPostId: 7 });
-  expect(m.update).toHaveBeenCalledWith(
-    "p1",
-    "j1",
-    expect.objectContaining({ state: "published" }),
-  );
+  expect(m.update.mock.lastCall?.[2]).toMatchObject({ state: "published" });
 });
 it("uploads the reviewed WebP before the post and attaches the persisted media id", async () => {
   m.job.mockResolvedValue({ ...(await m.job()), featuredImageId: "img1" });
@@ -174,7 +171,7 @@ it("uploads the reviewed WebP before the post and attaches the persisted media i
   });
   m.imageBytes.mockResolvedValue(new Uint8Array([82, 73, 70, 70]));
   const fetch = vi
-    .fn()
+    .fn<typeof globalThis.fetch>()
     .mockResolvedValueOnce(Response.json({ id: 9 }))
     .mockResolvedValueOnce(Response.json({ id: 9 }))
     .mockResolvedValueOnce(
@@ -198,27 +195,21 @@ it("uploads the reviewed WebP before the post and attaches the persisted media i
   expect(fetch.mock.calls[0]?.[0]).toBe(
     "https://example.com/wp-json/wp/v2/media",
   );
-  expect(fetch.mock.calls[0]?.[1]?.headers["user-agent"]).toBe("OpenSEO");
-  expect(m.setMedia).toHaveBeenCalledWith("p1", "img1", 9);
-  expect(JSON.parse(fetch.mock.calls[2]?.[1]?.body as string)).toMatchObject({
-    featured_media: 9,
-  });
-  expect(m.update).toHaveBeenCalledWith(
-    "p1",
-    "j1",
-    expect.objectContaining({ state: "published" }),
+  expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("user-agent")).toBe(
+    "OpenSEO",
   );
+  expect(m.setMedia).toHaveBeenCalledWith("p1", "img1", 9);
+  expect(fetch.mock.calls[2]?.[1]?.body).toContain('"featured_media":9');
+  expect(m.update.mock.lastCall?.[2]).toMatchObject({ state: "published" });
 });
 it("holds an unknown WordPress outcome without repeating a write", async () => {
   const fetch = vi.fn().mockRejectedValue(new Error("timeout"));
   vi.stubGlobal("fetch", fetch);
   await publishApprovedDraft("p1", "j1");
   expect(fetch).toHaveBeenCalledTimes(1);
-  expect(m.update).toHaveBeenCalledWith(
-    "p1",
-    "j1",
-    expect.objectContaining({ state: "publication_unknown" }),
-  );
+  expect(m.update.mock.lastCall?.[2]).toMatchObject({
+    state: "publication_unknown",
+  });
 });
 it("private review cannot use an expired or already-used token", async () => {
   m.link
@@ -227,7 +218,7 @@ it("private review cannot use an expired or already-used token", async () => {
   await expect(loadPrivateReview("a".repeat(72))).rejects.toThrow();
   await expect(loadPrivateReview("a".repeat(72))).rejects.toThrow();
 });
-it("private review rejects changed role, recipient and Context", async () => {
+it("private review rejects a link whose approval role changed", async () => {
   m.policy.mockResolvedValueOnce({
     enabled: 1,
     autopilot: 1,
@@ -237,24 +228,20 @@ it("private review rejects changed role, recipient and Context", async () => {
     reviewerEmail: "reviewer@example.com",
   });
   await expect(loadPrivateReview("a".repeat(72))).rejects.toThrow();
-  m.context.mockResolvedValue({ version: "changed" });
-  await expect(loadPrivateReview("a".repeat(72))).rejects.toThrow();
   expect(m.approve).not.toHaveBeenCalled();
 });
 it("records a client decision only for the server-bound job and consumes link", async () => {
   await decidePrivateReview("a".repeat(72), "approved");
-  expect(m.approve).toHaveBeenCalledWith(
-    "p1",
-    "j1",
-    expect.stringContaining("private-link:"),
-    "approved",
-    {
-      state: "ready_for_manual_publication",
-      role: "client",
-      artifactVersion: 1,
-      feedback: expect.objectContaining({ message: "", scope: "article" }),
-    },
-  );
+  const [projectId, jobId, actor, decision, transition] =
+    m.approve.mock.lastCall ?? [];
+  expect([projectId, jobId, decision]).toEqual(["p1", "j1", "approved"]);
+  expect(actor).toContain("private-link:");
+  expect(transition).toMatchObject({
+    state: "ready_to_publish",
+    wordpressVersion: "wp1",
+    role: "client",
+    artifactVersion: 1,
+  });
   expect(m.used).toHaveBeenCalledTimes(1);
 });
 

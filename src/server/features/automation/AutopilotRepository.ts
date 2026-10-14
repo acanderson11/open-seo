@@ -141,11 +141,10 @@ export const AutopilotRepository = {
       .from(automationJobs)
       .where(
         and(
-          eq(automationJobs.state, "ready_for_manual_publication"),
+          eq(automationJobs.state, "ready_to_publish"),
           sql`not exists(select 1 from ${articleFeaturedImages} where ${articleFeaturedImages.projectId} = ${automationJobs.projectId} and ${articleFeaturedImages.jobId} = ${automationJobs.id} and ${articleFeaturedImages.artifactVersion} = ${automationJobs.version} and ${articleFeaturedImages.status} = 'generating')`,
-          eq(automationJobs.kind, "new_content"),
-          sql`${automationJobs.wordpressVersion} is not null`,
-          sql`exists(select 1 from ${automationPolicies} where ${automationPolicies.projectId} = ${automationJobs.projectId} and ${automationPolicies.delivery} = 'wordpress' and ${automationPolicies.enabled} = 1 and ${automationPolicies.autopilot} = 1 and ${automationPolicies.version} = ${automationJobs.policyVersion})`,
+          // Paused projects keep their queue until execution is re-enabled.
+          sql`exists(select 1 from ${automationPolicies} where ${automationPolicies.projectId} = ${automationJobs.projectId} and ${automationPolicies.enabled} = 1)`,
         ),
       )
       .limit(10);
@@ -160,11 +159,8 @@ export const AutopilotRepository = {
             and(
               eq(automationJobs.id, id),
               eq(automationJobs.projectId, projectId),
-              eq(automationJobs.state, "ready_for_manual_publication"),
+              eq(automationJobs.state, "ready_to_publish"),
               sql`not exists(select 1 from ${articleFeaturedImages} where ${articleFeaturedImages.projectId} = ${automationJobs.projectId} and ${articleFeaturedImages.jobId} = ${automationJobs.id} and ${articleFeaturedImages.artifactVersion} = ${automationJobs.version} and ${articleFeaturedImages.status} = 'generating')`,
-              eq(automationJobs.kind, "new_content"),
-              sql`${automationJobs.wordpressVersion} is not null`,
-              sql`exists(select 1 from ${automationPolicies} where ${automationPolicies.projectId} = ${automationJobs.projectId} and ${automationPolicies.delivery} = 'wordpress' and ${automationPolicies.enabled} = 1 and ${automationPolicies.autopilot} = 1 and ${automationPolicies.version} = ${automationJobs.policyVersion})`,
             ),
           )
           .returning()

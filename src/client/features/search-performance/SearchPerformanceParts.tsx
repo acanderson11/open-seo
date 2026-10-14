@@ -363,8 +363,8 @@ export function StrikingDistanceTable({
                 to="/p/$projectId/execution"
                 params={{ projectId }}
                 search={{
-                  topic: table.getSelectedRowModel().rows[0]!.original.query,
-                  targetUrl: table.getSelectedRowModel().rows[0]!.original.page,
+                  topic: table.getSelectedRowModel().rows[0].original.query,
+                  targetUrl: table.getSelectedRowModel().rows[0].original.page,
                 }}
               >
                 Create content draft

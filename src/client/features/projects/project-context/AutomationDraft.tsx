@@ -4,10 +4,8 @@ import { BlockedDraftReview } from "./BlockedDraftReview";
 import { FeaturedImagePanel } from "./FeaturedImagePanel";
 import { UnknownRevisionRecovery } from "./UnknownRevisionRecovery";
 import { ArticleResearchGaps } from "./ArticleResearchGaps";
-import {
-  ArticleFeedbackHistory,
-  RevisionPendingNotice,
-} from "./ArticleFeedbackHistory";
+import { ArticleFeedbackHistory } from "./ArticleFeedbackHistory";
+import { DraftNotices } from "./DraftNotices";
 import { ArticlePassageReview } from "./ArticlePassageReview";
 import { useState } from "react";
 import type { ContentFeedback } from "@/types/schemas/contentFeedback";
@@ -17,8 +15,8 @@ import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   decideAutomationDraft,
   getAutomationDraft,
-  exportAutomationDraft,
 } from "@/serverFunctions/automation";
+import { MAX_ARTICLE_VERSION } from "@/types/schemas/automation";
 export function Draft({
   projectId,
   jobId,
@@ -76,26 +74,7 @@ export function Draft({
       toast.error(
         getStandardErrorMessage(
           error,
-          "Draft or Context changed. Refresh before reviewing.",
-        ),
-      ),
-  });
-  const copy = useMutation({
-    mutationFn: async () => {
-      const result = await exportAutomationDraft({
-        data: { projectId, jobId },
-      });
-      await navigator.clipboard.writeText(result.bodyHtml);
-    },
-    onSuccess: () =>
-      toast.success(
-        "Clean HTML copied. Paste into a WordPress Custom HTML block or code editor.",
-      ),
-    onError: (error) =>
-      toast.error(
-        getStandardErrorMessage(
-          error,
-          "Could not copy this draft. Its approval or Context may have changed.",
+          "This draft changed. Refresh before reviewing.",
         ),
       ),
   });
@@ -139,51 +118,7 @@ export function Draft({
       className="space-y-3 rounded-lg border border-base-300 p-4"
       data-review-dirty={unsentFeedback}
     >
-      <h3 className="text-lg font-semibold">{job.title ?? job.topic}</h3>
-      <p className="text-sm">
-        Current article · version {job.version} ·{" "}
-        {job.state.replaceAll("_", " ")}
-      </p>
-      {submittedFeedback &&
-        [
-          "needs_revision",
-          "revision_queued",
-          "revising",
-          "outcome_unknown",
-        ].includes(job.state) && (
-          <RevisionPendingNotice state={job.state} version={job.version} />
-        )}
-      {!job.contextCurrent && job.state === "awaiting_approval" && (
-        <p className="text-sm" role="status">
-          Client Context has changed since this draft. Request a revision using
-          the current guidance before approving.
-        </p>
-      )}
-      {job.rationale && (
-        <p className="text-sm">Why this article: {job.rationale}</p>
-      )}
-      {job.publishedUrl && (
-        <a
-          className="link"
-          href={job.publishedUrl}
-          target="_blank"
-          rel="noreferrer"
-        >
-          View published article
-        </a>
-      )}
-      {job.message && (
-        <p className="rounded border border-base-300 p-3 text-sm" role="status">
-          {job.message}
-        </p>
-      )}
-      {job.review && (
-        <p className="whitespace-pre-wrap text-sm">
-          {job.review.startsWith("Manual article recovery ")
-            ? "This version was imported after an uncertain automated revision. Its content and sources were checked for this manual recovery; agency approval is still required. The original draft and feedback remain in the history."
-            : job.review}
-        </p>
-      )}
+      <DraftNotices job={job} submittedFeedback={submittedFeedback} />
       <ArticleResearchGaps brief={job.researchBrief} />
       <FeaturedImagePanel
         projectId={projectId}
@@ -260,7 +195,7 @@ export function Draft({
       )}
       {job.state === "outcome_unknown" &&
         job.bodyHtml &&
-        job.version < 4 &&
+        job.version < MAX_ARTICLE_VERSION &&
         job.approvalRole === "agency" &&
         savedFeedback?.role === "agency" && (
           <UnknownRevisionRecovery
@@ -285,33 +220,22 @@ export function Draft({
           canApprove={
             job.state === "awaiting_approval" &&
             !!job.qualityPassed &&
-            job.contextCurrent &&
             !imageGenerating
           }
           onDecision={(decision) => decide.mutate(decision)}
         />
       )}
-      {job.state === "ready_for_manual_publication" && (
-        <button
-          className="btn btn-sm"
-          disabled={copy.isPending}
-          onClick={() => copy.mutate()}
-        >
-          Copy clean HTML
-        </button>
-      )}
-      {job.state === "ready_for_manual_publication" && !job.wordpressPostId && (
-        <ArticleDeliveryActions
-          projectId={projectId}
-          jobId={jobId}
-          version={job.version}
-          manual={!job.wordpressVersion}
-          onChanged={() => {
-            void client.invalidateQueries({ queryKey: key });
-            void onChanged();
-          }}
-        />
-      )}
+      <ArticleDeliveryActions
+        projectId={projectId}
+        jobId={jobId}
+        version={job.version}
+        state={job.state}
+        sentToWordpress={!!job.wordpressPostId}
+        onChanged={() => {
+          void client.invalidateQueries({ queryKey: key });
+          void onChanged();
+        }}
+      />
       <ArticleFeedbackHistory
         history={job.history}
         currentVersion={job.version}

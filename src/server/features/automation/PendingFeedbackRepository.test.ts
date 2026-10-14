@@ -1,6 +1,7 @@
+import { agencyTestSchemaSql } from "./agency-test-schema";
 import type { runBatch } from "@/db/runBatch";
 import type * as RepoModule from "./AutomationRepository";
-import { readFileSync, mkdtempSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClient, type Client } from "@libsql/client";
@@ -24,17 +25,7 @@ beforeAll(async () => {
         for (const statement of build(executor)) await statement;
       }),
   }));
-  await client.executeMultiple(
-    "PRAGMA foreign_keys=ON; CREATE TABLE projects(id text PRIMARY KEY); INSERT INTO projects VALUES ('p1'),('p2');" +
-      readFileSync("drizzle/0045_content_execution.sql", "utf8") +
-      readFileSync("drizzle/0046_execution_board.sql", "utf8") +
-      readFileSync("drizzle/0047_content_autopilot.sql", "utf8") +
-      readFileSync("drizzle/0048_content_learning.sql", "utf8") +
-      readFileSync("drizzle/0049_optional_delivery.sql", "utf8") +
-      readFileSync("drizzle/0053_article_passage_comments.sql", "utf8") +
-      readFileSync("drizzle/0054_feedback_edit_token.sql", "utf8") +
-      readFileSync("drizzle/0055_article_approval_reopen.sql", "utf8"),
-  );
+  await client.executeMultiple(agencyTestSchemaSql());
   repo = (await import("./AutomationRepository")).AutomationRepository;
 });
 // libsql can retain native file handles until process exit on Windows. The isolated database lives in the OS temporary directory.
@@ -187,7 +178,7 @@ it("refunds only the owning unused reservation and only once", async () => {
     expectedVersion: null,
   });
   const policy = await repo.policy("p1");
-  expect(await repo.reserve("p1", "j1", policy!.version, "2026-09")).toBe(true);
+  expect(await repo.reserve("p1", "j1", policy.version, "2026-09")).toBe(true);
   await repo.releaseSlot("p1", "wrong-job", true);
   expect((await repo.policy("p1"))?.used).toBe(1);
   await repo.releaseSlot("p1", "j1", true);
@@ -247,8 +238,9 @@ it("cannot reopen or manually complete an article already being published", asyn
       "https://example.com/article",
     ),
   ).toBe(false);
+  // Queued for WordPress: the publisher owns it, so it can't be marked by hand.
   await repo.update("p1", "publishing", {
-    state: "ready_for_manual_publication",
+    state: "ready_to_publish",
     wordpressVersion: "connection",
   });
   expect(

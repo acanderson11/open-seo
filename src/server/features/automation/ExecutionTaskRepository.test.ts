@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { agencyTestSchemaSql } from "./agency-test-schema";
+
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { beforeAll, afterAll, beforeEach, it, expect, vi } from "vitest";
@@ -12,12 +13,7 @@ let client: Client,
 beforeAll(async () => {
   client = createClient({ url: "file::memory:" });
   vi.doMock("@/db", () => ({ db: drizzle(client) }));
-  await client.executeMultiple(
-    "PRAGMA foreign_keys=ON; CREATE TABLE projects(id text PRIMARY KEY); INSERT INTO projects VALUES ('p1'),('p2');" +
-      readFileSync("drizzle/0045_content_execution.sql", "utf8") +
-      readFileSync("drizzle/0046_execution_board.sql", "utf8") +
-      readFileSync("drizzle/0047_content_autopilot.sql", "utf8"),
-  );
+  await client.executeMultiple(agencyTestSchemaSql());
   repo = (await import("./ExecutionTaskRepository")).ExecutionTaskRepository;
   service = await import("./ExecutionTaskService");
 });

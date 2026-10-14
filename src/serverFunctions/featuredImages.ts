@@ -1,3 +1,4 @@
+import { ProjectImageRepository as projectImages } from "@/server/features/automation/ProjectImageRepository";
 import { z } from "zod";
 import { createServerFn } from "@tanstack/react-start";
 import { requireProjectContext } from "@/serverFunctions/middleware";
@@ -42,8 +43,8 @@ export const getProjectImageSettings = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     await authorize(context);
     const [preferences, assets] = await Promise.all([
-      images.preferences(context.projectId),
-      images.assets(context.projectId),
+      projectImages.preferences(context.projectId),
+      projectImages.assets(context.projectId),
     ]);
     return { preferences, assets };
   });
@@ -64,9 +65,9 @@ export const saveProjectImageSettings = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     await authorize(context);
-    if (!(await images.savePreferences(context.projectId, data)))
+    if (!(await projectImages.savePreferences(context.projectId, data)))
       throw new AppError("CONFLICT");
-    return images.preferences(context.projectId);
+    return projectImages.preferences(context.projectId);
   });
 
 export const uploadProjectFeaturedAsset = createServerFn({ method: "POST" })
@@ -82,7 +83,7 @@ export const getProjectFeaturedAssetData = createServerFn({ method: "POST" })
   .validator(projectRequest.extend({ assetId: z.string().uuid() }))
   .handler(async ({ context, data }) => {
     await authorize(context);
-    const asset = await images.asset(context.projectId, data.assetId);
+    const asset = await projectImages.asset(context.projectId, data.assetId);
     if (!asset) throw new AppError("NOT_FOUND");
     return {
       base64: encodeImageBase64(await readFeaturedImage(asset.r2Key)),
@@ -110,26 +111,28 @@ export const generateArticleFeaturedImage = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     await authorize(context);
     return prepareFeaturedImage(
-      context.projectId,
-      data.jobId,
-      data.version,
+      {
+        projectId: context.projectId,
+        jobId: data.jobId,
+        version: data.version,
+      },
       context.userId,
-      data.visualBrief,
-      data.feedback,
-      data.rememberFeedback,
-      true,
+      {
+        visualBrief: data.visualBrief,
+        feedback: data.feedback,
+        rememberFeedback: data.rememberFeedback,
+        force: true,
+      },
     );
   });
 
 export const replaceArticleFeaturedImage = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(
-    detail
-      .extend(upload.shape)
-      .extend({
-        source: z.enum(["client", "stock"]),
-        visualBrief: z.string().trim().max(600),
-      }),
+    detail.extend(upload.shape).extend({
+      source: z.enum(["client", "stock"]),
+      visualBrief: z.string().trim().max(600),
+    }),
   )
   .handler(async ({ context, data }) => {
     await authorize(context);
@@ -153,9 +156,11 @@ export const updateArticleFeaturedAlt = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     await authorize(context);
     return updateFeaturedAlt(
-      context.projectId,
-      data.jobId,
-      data.version,
+      {
+        projectId: context.projectId,
+        jobId: data.jobId,
+        version: data.version,
+      },
       data.imageId,
       context.userId,
       data.altText,

@@ -73,6 +73,7 @@ export async function recoverManualArticle(input: Recovery) {
           title: automationJobs.title,
           metaDescription: automationJobs.metaDescription,
           bodyHtml: automationJobs.bodyHtml,
+          featuredImageId: automationJobs.featuredImageId,
           contextVersion: automationJobs.contextVersion,
           policyVersion: automationJobs.policyVersion,
           review: automationJobs.review,

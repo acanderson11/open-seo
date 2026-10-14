@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -19,7 +20,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("OpenRouter image response contract", () => {
   it("sends one bounded non-streaming image request and records provider cost", async () => {
-    const fetch = vi.fn(async (_url: string, _init: RequestInit) =>
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({
         data: [{ b64_json: "A".repeat(100) }],
         usage: { cost: 0.007 },
@@ -33,16 +34,18 @@ describe("OpenRouter image response contract", () => {
     expect(fetch.mock.calls[0]?.[0]).toBe(
       "https://openrouter.ai/api/v1/images",
     );
-    const request = fetch.mock.calls[0]?.[1] as RequestInit;
-    expect(request.redirect).toBe("manual");
-    expect(JSON.parse(request.body as string)).toMatchObject({
+    const request = fetch.mock.calls[0]?.[1];
+    expect(request?.redirect).toBe("manual");
+    const body = z
+      .object({ prompt: z.string() })
+      .passthrough()
+      .parse(JSON.parse(z.string().parse(request?.body)));
+    expect(body).toMatchObject({
       model: "recraft/recraft-v4.1-flash",
       aspect_ratio: "16:9",
       n: 1,
     });
-    expect(JSON.parse(request.body as string).prompt).toHaveLength(
-      IMAGE_PROMPT_LIMIT,
-    );
+    expect(body.prompt).toHaveLength(IMAGE_PROMPT_LIMIT);
     expect(result).toMatchObject({
       model: "recraft/recraft-v4.1-flash",
       costUsd: "0.007",

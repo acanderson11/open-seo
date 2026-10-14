@@ -254,8 +254,8 @@ export default {
       await withPgClient(async () => {
         try {
           await scheduleAutopilot(env);
-        } catch {
-          console.error("[autopilot] Scheduler interrupted");
+        } catch (err) {
+          console.error("[autopilot] Scheduler interrupted:", err);
         }
         for (const job of await autopilotRepo.pendingPublication())
           await publishApprovedDraft(job.projectId, job.id);

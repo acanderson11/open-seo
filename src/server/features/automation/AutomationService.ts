@@ -1,21 +1,15 @@
 import { boundedResult } from "./AutomationResult";
-export { boundedResult } from "./AutomationResult";
 import { researchArticle, RESEARCH_GUIDANCE } from "./ArticleResearchService";
 import { ContentLearningRepository as learning } from "./ContentLearningRepository";
-import {
-  validateFeedback,
-  type ContentFeedback,
-} from "@/types/schemas/contentFeedback";
 import type { z } from "zod";
 import { AutomationRepository as repo } from "./AutomationRepository";
 import { ProjectContextService } from "@/server/features/project-context/services/ProjectContextService";
 import { readPages } from "@/server/lib/scrape";
-import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { AppError } from "@/server/lib/errors";
-import { FeaturedImageRepository as featuredImages } from "./FeaturedImageRepository";
 import { prepareFeaturedImage } from "./FeaturedImageService";
+import { executionHookRequest, executionSecret } from "./n8nExecution";
+import { requestClientReview } from "./DraftReviewService";
 import {
-  draftState,
   renderArticle,
   type draftRequestSchema,
 } from "@/types/schemas/automation";
@@ -71,28 +65,28 @@ export function validateTarget(target: string, domain: string) {
     throw new AppError("VALIDATION_ERROR");
   return url.href;
 }
+type PlannedDraft = {
+  rationale: string;
+  sourceUrls: string[];
+  kind?: "new_content" | "refresh_content";
+  savedBrief?: {
+    brief: {
+      title: string;
+      angle: string;
+      outline: string[];
+      claims: { statement: string; sourceId: string; evidence: string }[];
+    };
+    sources: { id: string; url: string; text: string }[];
+    contextVersion: string;
+    guidance: string;
+  };
+};
 export async function startDraft(
   projectId: string,
   domain: string,
   actorId: string,
   input: z.infer<typeof draftRequestSchema>,
-  planned?: {
-    rationale: string;
-    sourceUrls: string[];
-    wordpressVersion?: string;
-    kind?: "new_content" | "refresh_content";
-    savedBrief?: {
-      brief: {
-        title: string;
-        angle: string;
-        outline: string[];
-        claims: { statement: string; sourceId: string; evidence: string }[];
-      };
-      sources: { id: string; url: string; text: string }[];
-      contextVersion: string;
-      guidance: string;
-    };
-  },
+  planned?: PlannedDraft,
 ) {
   const targetUrl = validateTarget(input.targetUrl, domain);
   const existing = await repo.byRequest(projectId, input.requestKey);
@@ -101,12 +95,7 @@ export async function startDraft(
       throw new AppError("CONFLICT");
     return existing;
   }
-  const secret = await getOptionalEnvValue("AGENCY_N8N_EXECUTION_SECRET");
-  if (!secret)
-    throw new AppError(
-      "AUTH_CONFIG_MISSING",
-      "The n8n execution connection is not configured.",
-    );
+  await executionSecret();
   const policy = await repo.policy(projectId);
   if (!policy?.enabled) throw new AppError("FORBIDDEN");
   const snapshot = await contextSnapshot(projectId);
@@ -130,9 +119,8 @@ export async function startDraft(
       policyVersion: policy.version,
       createdAt,
       version: 1,
-      kind: planned?.kind ?? (planned ? "new_content" : "refresh_content"),
+      kind: draftKind(planned),
       rationale: planned?.rationale,
-      wordpressVersion: planned?.wordpressVersion,
     }))
   )
     return repo.byRequest(projectId, input.requestKey);
@@ -146,7 +134,7 @@ export async function startDraft(
     });
     return repo.job(projectId, id);
   }
-  return runReservedDraft({
+  await runReservedDraft({
     projectId,
     domain,
     input,
@@ -155,8 +143,8 @@ export async function startDraft(
     snapshot,
     id,
     targetUrl,
-    secret,
   });
+  return repo.job(projectId, id);
 }
 async function runReservedDraft({
   projectId,
@@ -167,18 +155,16 @@ async function runReservedDraft({
   snapshot,
   id,
   targetUrl,
-  secret,
 }: {
   projectId: string;
   domain: string;
   input: z.infer<typeof draftRequestSchema>;
-  planned: Parameters<typeof startDraft>[4];
+  planned: PlannedDraft | undefined;
   policy: NonNullable<Awaited<ReturnType<typeof repo.policy>>>;
   snapshot: Awaited<ReturnType<typeof contextSnapshot>>;
   id: string;
   targetUrl: string;
-  secret: string;
-}): Promise<Awaited<ReturnType<typeof repo.job>>> {
+}) {
   let dispatched = false;
   try {
     await repo.update(projectId, id, { state: "preparing", message: null });
@@ -190,13 +176,7 @@ async function runReservedDraft({
       1,
       input.topic,
     );
-    const freshPolicy = await repo.policy(projectId),
-      fresh = await contextSnapshot(projectId);
-    if (
-      !freshPolicy?.enabled ||
-      freshPolicy.version !== policy.version ||
-      fresh.version !== snapshot.version
-    )
+    if (!(await repo.policy(projectId))?.enabled)
       throw new AppError("CONFLICT");
     const job = {
       jobId: id,
@@ -239,23 +219,10 @@ async function runReservedDraft({
         ...externalSources,
       ],
     };
+    const request = await executionHookRequest("openseo-content-job", job);
     await repo.update(projectId, id, { state: "running" });
     dispatched = true;
-    const response = await fetch(
-      "https://n8n.andmktg.com/webhook/openseo-content-job",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-openseo-execution-secret": secret,
-        },
-        body: JSON.stringify(job),
-        redirect: "manual",
-        signal: AbortSignal.timeout(90000),
-      },
-    );
-    if (!response.ok) throw new AppError("UPSTREAM_UNAVAILABLE");
-    const result = await boundedResult(response);
+    const result = await boundedResult(await fetch(request));
     if (
       result.jobId !== id ||
       result.projectId !== projectId ||
@@ -263,20 +230,11 @@ async function runReservedDraft({
       result.policyVersion !== policy.version
     )
       throw new AppError("CONFLICT");
-    const current = await contextSnapshot(projectId),
-      currentPolicy = await repo.policy(projectId);
     const passed =
       result.review.pass &&
       !result.review.issues.some((issue) => issue.severity === "blocking");
-    const state = draftState(
-      passed,
-      policy.approval,
-      current.version === snapshot.version &&
-        currentPolicy?.version === policy.version &&
-        currentPolicy.enabled === 1,
-    );
     await repo.update(projectId, id, {
-      state,
+      state: passed ? "awaiting_approval" : "needs_revision",
       title: result.draft.title,
       metaDescription: result.draft.metaDescription,
       bodyHtml: renderArticle(result.draft),
@@ -288,11 +246,15 @@ async function runReservedDraft({
       n8nExecutionId: result.n8nExecutionId,
       completedAt: new Date().toISOString(),
     });
-    if (["awaiting_approval", "needs_revision"].includes(state)) {
-      try { await prepareFeaturedImage(projectId, id, 1, "system:image"); } catch { /* Article delivery remains available without an image. */ }
-    }
+    await prepareDraftImage(projectId, id);
     await repo.releaseSlot(projectId, id);
-  } catch {
+    if (passed) await requestClientReview(projectId, id);
+  } catch (error) {
+    console.error("automation.draft failed:", error, {
+      projectId,
+      jobId: id,
+      dispatched,
+    });
     await repo.update(projectId, id, {
       state: dispatched ? "outcome_unknown" : "failed",
       message: dispatched
@@ -301,77 +263,27 @@ async function runReservedDraft({
     });
     if (!dispatched) await repo.releaseSlot(projectId, id);
   }
-  return repo.job(projectId, id);
 }
-export async function decideDraft(
-  projectId: string,
-  jobId: string,
-  actorId: string,
-  decision: "approved" | "changes_requested",
-  review: { version: number; feedback?: ContentFeedback; featuredImageId: string | null },
-) {
-  const { version, feedback, featuredImageId } = review;
-  const job = await repo.job(projectId, jobId),
-    policy = await repo.policy(projectId);
-  if (!job || !policy) throw new AppError("NOT_FOUND");
-  if (
-    job.version !== version ||
-    !(
-      decision === "changes_requested"
-        ? ["awaiting_approval", "needs_revision"]
-        : ["awaiting_approval"]
-    ).includes(job.state) ||
-    !job.bodyHtml
-  )
-    throw new AppError("CONFLICT");
-  if (job.featuredImageId !== featuredImageId) throw new AppError("CONFLICT");
-  if (decision === "approved" && featuredImageId) {
-    const image = await featuredImages.image(projectId, featuredImageId);
-    if (!image || image.jobId !== jobId || image.artifactVersion !== version || image.status !== "ready" || image.altText.trim().length < 15)
-      throw new AppError("CONFLICT");
+async function prepareDraftImage(projectId: string, id: string) {
+  try {
+    await prepareFeaturedImage(
+      { projectId, jobId: id, version: 1 },
+      "system:image",
+    );
+  } catch (error) {
+    // The article stays deliverable without an image.
+    console.error("automation.draft-image failed:", error, {
+      projectId,
+      jobId: id,
+    });
   }
-  const current = await contextSnapshot(projectId);
-  if (
-    !policy.enabled ||
-    policy.version !== job.policyVersion ||
-    (decision === "approved" && current.version !== job.contextVersion) ||
-    (decision === "approved" && !job.qualityPassed)
-  )
-    throw new AppError("CONFLICT");
-  if (policy.approval !== "agency") throw new AppError("FORBIDDEN");
-  const validated = validateFeedback(
-    decision,
-    feedback ?? {
-      message: "",
-      scope: "article",
-      category: "voice",
-      instruction: "",
-    },
-    job.bodyHtml ?? "",
-  );
-  const nextState =
-    decision === "changes_requested"
-      ? version >= 4
-        ? "needs_revision"
-        : "revision_queued"
-      : policy.approval === "agency"
-        ? "ready_for_manual_publication"
-        : "awaiting_approval";
-  if (
-    !(await repo.approve(projectId, jobId, actorId, decision, {
-      state: nextState,
-      artifactVersion: version,
-      featuredImageId,
-      feedback: validated,
-    }))
-  )
-    throw new AppError("CONFLICT");
-  // An agency actor can never stand in for client approval.
-  return repo.job(projectId, jobId);
 }
 
+const draftKind = (planned: PlannedDraft | undefined) =>
+  planned?.kind ?? (planned ? "new_content" : "refresh_content");
+
 async function draftSources(
-  planned: Parameters<typeof startDraft>[4],
+  planned: PlannedDraft | undefined,
   domain: string,
   targetUrl: string,
 ) {
@@ -385,10 +297,10 @@ async function draftSources(
 }
 function draftOpportunity(
   input: z.infer<typeof draftRequestSchema>,
-  planned: Parameters<typeof startDraft>[4],
+  planned: PlannedDraft | undefined,
   targetUrl: string,
 ) {
-  const kind = planned?.kind ?? (planned ? "new_content" : "refresh_content");
+  const kind = draftKind(planned);
   return {
     id: input.requestKey,
     kind,

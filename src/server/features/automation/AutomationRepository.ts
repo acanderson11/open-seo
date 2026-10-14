@@ -1,4 +1,5 @@
 import type { ContentFeedback } from "@/types/schemas/contentFeedback";
+import { MAX_ARTICLE_VERSION } from "@/types/schemas/automation";
 import { runBatch } from "@/db/runBatch";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -169,114 +170,6 @@ export const AutomationRepository = {
   ) {
     await db.update(automationJobs).set(input).where(jobScope(projectId, id));
   },
-  async completeRevision(
-    projectId: string,
-    id: string,
-    version: number,
-    selectedImageId: string | null,
-    input: Partial<typeof automationJobs.$inferInsert>,
-  ) {
-    const nextImageId = crypto.randomUUID();
-    const token = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const selectedMatches = selectedImageId
-      ? eq(automationJobs.featuredImageId, selectedImageId)
-      : isNull(automationJobs.featuredImageId);
-    const currentJob = and(
-      jobScope(projectId, id),
-      eq(automationJobs.version, version),
-      eq(automationJobs.state, "revising"),
-      selectedMatches,
-      isNull(automationJobs.notificationState),
-      isNull(automationJobs.wordpressPostId),
-      isNull(automationJobs.publishedUrl),
-    );
-    await runBatch((tx) => [
-      tx
-        .insert(articleFeaturedImages)
-        .select(
-          tx
-            .select({
-              id: sql`${nextImageId}`.as("id"),
-              projectId: articleFeaturedImages.projectId,
-              jobId: articleFeaturedImages.jobId,
-              artifactVersion: sql`${version + 1}`.as("artifactVersion"),
-              status: articleFeaturedImages.status,
-              source: articleFeaturedImages.source,
-              r2Key: articleFeaturedImages.r2Key,
-              sourceAssetId: articleFeaturedImages.sourceAssetId,
-              sourceUrl: articleFeaturedImages.sourceUrl,
-              rightsNote: articleFeaturedImages.rightsNote,
-              model: articleFeaturedImages.model,
-              prompt: articleFeaturedImages.prompt,
-              visualBrief: articleFeaturedImages.visualBrief,
-              altText: articleFeaturedImages.altText,
-              bytes: articleFeaturedImages.bytes,
-              failure: sql`null`.as("failure"),
-              costUsd: sql`null`.as("costUsd"),
-              wordpressMediaId: articleFeaturedImages.wordpressMediaId,
-              actorId: sql`'system:image'`.as("actorId"),
-              createdAt: sql`${now}`.as("createdAt"),
-            })
-            .from(articleFeaturedImages)
-            .where(
-              and(
-                eq(articleFeaturedImages.projectId, projectId),
-                eq(articleFeaturedImages.jobId, id),
-                eq(articleFeaturedImages.id, selectedImageId ?? ""),
-                eq(articleFeaturedImages.artifactVersion, version),
-                eq(articleFeaturedImages.status, "ready"),
-                sql`${articleFeaturedImages.r2Key} is not null`,
-                sql`exists (select 1 from ${automationJobs} where ${currentJob})`,
-              ),
-            ),
-        )
-        .onConflictDoNothing(),
-      tx
-        .update(automationJobs)
-        .set({
-          ...input,
-          notificationState: token,
-          featuredImageId: sql`case when exists (select 1 from ${articleFeaturedImages} where ${articleFeaturedImages.id} = ${nextImageId} and ${articleFeaturedImages.projectId} = ${projectId} and ${articleFeaturedImages.jobId} = ${id} and ${articleFeaturedImages.artifactVersion} = ${version + 1} and ${articleFeaturedImages.status} = 'ready') then ${nextImageId} else null end`,
-        })
-        .where(currentJob),
-    ]);
-    const updated = await this.job(projectId, id);
-    if (updated?.notificationState !== token) return false;
-    await db
-      .update(automationJobs)
-      .set({ notificationState: null })
-      .where(
-        and(
-          jobScope(projectId, id),
-          eq(automationJobs.notificationState, token),
-        ),
-      );
-    return true;
-  },
-  async failRevision(
-    projectId: string,
-    id: string,
-    version: number,
-    state: "outcome_unknown" | "needs_revision",
-    message: string,
-  ) {
-    return (
-      (
-        await db
-          .update(automationJobs)
-          .set({ state, message })
-          .where(
-            and(
-              jobScope(projectId, id),
-              eq(automationJobs.version, version),
-              eq(automationJobs.state, "revising"),
-            ),
-          )
-          .returning({ id: automationJobs.id })
-      ).length === 1
-    );
-  },
   async releaseSlot(projectId: string, jobId: string, refundUnused = false) {
     await db
       .update(automationPolicies)
@@ -306,6 +199,7 @@ export const AutomationRepository = {
           artifactVersion?: number;
           featuredImageId?: string | null;
           feedback?: ContentFeedback;
+          wordpressVersion?: string | null;
         } = "awaiting_approval",
   ) {
     const artifactVersion =
@@ -316,6 +210,8 @@ export const AutomationRepository = {
       typeof transition === "string" ? transition : transition.state;
     const role =
       typeof transition === "string" ? "agency" : (transition.role ?? "agency");
+    const wordpressVersion =
+      typeof transition === "string" ? undefined : transition.wordpressVersion;
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const won = sql`exists (select 1 from ${automationApprovals} where ${automationApprovals.id} = ${id})`;
@@ -453,9 +349,10 @@ export const AutomationRepository = {
         .update(automationJobs)
         .set({
           state: nextState,
+          ...(wordpressVersion === undefined ? {} : { wordpressVersion }),
           message:
             decision === "changes_requested"
-              ? artifactVersion >= 4
+              ? artifactVersion >= MAX_ARTICLE_VERSION
                 ? "Feedback saved. Three revisions reached; agency intervention required."
                 : "Feedback saved. Revision queued for the next scheduler check (about five minutes), subject to the monthly allowance; approval is required again."
               : null,

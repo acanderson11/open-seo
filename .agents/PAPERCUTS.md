@@ -54,3 +54,11 @@ line endings, and `buildSamSkillSource` throws "Skill has no frontmatter" becaus
 its frontmatter regex expects `\n`. The code is fine; the line endings are the
 problem. Normalize them (`.gitattributes` `eol=lf` for skills) or run the suite
 under WSL.
+
+## `vite build` needs Node 22.15+ (`@cloudflare/vite-plugin` imports `registerHooks`)
+
+On Node 22.14 the build stops while loading `vite.config.ts` with "The requested
+module 'node:module' does not provide an export named 'registerHooks'". The
+plugin imports `registerHooks`, which was added in Node 22.15. Tests and
+`tsc` still pass on 22.14, so the problem only appears at build/deploy time.
+Upgrade Node before `pnpm exec vite build --mode selfhost` or a selfhost deploy.

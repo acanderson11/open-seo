@@ -2,16 +2,30 @@ import { researchArticle, RESEARCH_GUIDANCE } from "./ArticleResearchService";
 import { revisionSources } from "./RevisionSources";
 import { revisionMessage } from "@/types/schemas/articlePassages";
 import { AutomationRepository as jobs } from "./AutomationRepository";
+import { ArticleRevisionRepository as revisions } from "./ArticleRevisionRepository";
 import { ContentLearningRepository as learning } from "./ContentLearningRepository";
-import { contextSnapshot, boundedResult } from "./AutomationService";
+import { contextSnapshot } from "./AutomationService";
+import { boundedResult } from "./AutomationResult";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
-import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import {
+  MAX_ARTICLE_VERSION,
   renderArticle,
   type AutomationResult,
 } from "@/types/schemas/automation";
 import { AppError } from "@/server/lib/errors";
 import { prepareFeaturedImage } from "./FeaturedImageService";
+import { executionHookRequest } from "./n8nExecution";
+import { requestClientReview } from "./DraftReviewService";
+
+type Job = NonNullable<Awaited<ReturnType<typeof jobs.job>>>;
+type Policy = NonNullable<Awaited<ReturnType<typeof jobs.policy>>>;
+type Feedback = Awaited<
+  ReturnType<typeof learning.history>
+>["feedback"][number];
+
+const EDITORIAL_GUIDANCE =
+  "Editorial guidance: Unanswered research questions, missing case studies, incomplete analytics, and site inventory limitations do not block revision or approval. Apply reviewer feedback using available evidence. Omit unsupported numbers and client-specific claims; do not invent examples or experience. General advice and clearly hypothetical examples are allowed. Judge the finished article for unsupported claims, not for optional information that was never provided.";
+
 export async function reviseArticle(
   projectId: string,
   id: string,
@@ -24,7 +38,7 @@ export async function reviseArticle(
     !job ||
     job.version !== version ||
     job.state !== "revision_queued" ||
-    version >= 4 ||
+    version >= MAX_ARTICLE_VERSION ||
     !policy?.enabled ||
     !project?.domain
   )
@@ -35,6 +49,21 @@ export async function reviseArticle(
   );
   if (!feedback.length || !job.bodyHtml) throw new AppError("CONFLICT");
   if (!(await learning.claim(projectId, id, version))) return null;
+  await runClaimedRevision(job, policy, project.domain, feedback);
+  const updated = await jobs.job(projectId, id);
+  // Email only for projects already configured for automatic review delivery.
+  return updated && policy.autopilot
+    ? { projectId, id, state: updated.state }
+    : null;
+}
+
+async function runClaimedRevision(
+  job: Job,
+  policy: Policy,
+  domain: string,
+  feedback: Feedback[],
+) {
+  const { projectId, id, version } = job;
   let dispatched = false;
   let preparationFailure =
     "Revision could not start. Check the project policy, Context, and monthly allowance, then request it again.";
@@ -48,14 +77,12 @@ export async function reviseArticle(
       ))
     )
       throw new AppError("CONFLICT");
-    const secret = await getOptionalEnvValue("AGENCY_N8N_EXECUTION_SECRET");
-    if (!secret) throw new AppError("AUTH_CONFIG_MISSING");
     const snapshot = await contextSnapshot(projectId);
     const source = await revisionSources(
       projectId,
       job.requestKey,
       job.targetUrl,
-      project.domain,
+      domain,
     );
     if (!source.pages.length) {
       preparationFailure =
@@ -68,18 +95,13 @@ export async function reviseArticle(
       version + 1,
       job.topic,
     );
-    const freshPolicy = await jobs.policy(projectId);
-    if (
-      !freshPolicy?.enabled ||
-      freshPolicy.version !== policy.version ||
-      (await contextSnapshot(projectId)).version !== snapshot.version
-    )
+    if (!(await jobs.policy(projectId))?.enabled)
       throw new AppError("CONFLICT");
     await jobs.update(projectId, id, {
       contextVersion: snapshot.version,
       policyVersion: policy.version,
     });
-    const payload = {
+    const request = await executionHookRequest("openseo-content-job", {
       jobId: id,
       projectId,
       contextVersion: snapshot.version,
@@ -88,7 +110,8 @@ export async function reviseArticle(
         snapshot.rendered +
         "\n\n" +
         RESEARCH_GUIDANCE +
-        "\n\nEditorial guidance: Unanswered research questions, missing case studies, incomplete analytics, and site inventory limitations do not block revision or approval. Apply reviewer feedback using available evidence. Omit unsupported numbers and client-specific claims; do not invent examples or experience. General advice and clearly hypothetical examples are allowed. Judge the finished article for unsupported claims, not for optional information that was never provided." +
+        "\n\n" +
+        EDITORIAL_GUIDANCE +
         (source.warning ? "\n\n" + source.warning : ""),
       feedback: [],
       revision: {
@@ -131,23 +154,9 @@ export async function reviseArticle(
         })),
         ...externalSources,
       ],
-    };
+    });
     dispatched = true;
-    const response = await fetch(
-      "https://n8n.andmktg.com/webhook/openseo-content-job",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-openseo-execution-secret": secret,
-        },
-        body: JSON.stringify(payload),
-        redirect: "manual",
-        signal: AbortSignal.timeout(90000),
-      },
-    );
-    if (!response.ok) throw new AppError("UPSTREAM_UNAVAILABLE");
-    const result = await boundedResult(response);
+    const result = await boundedResult(await fetch(request));
     assertRevisionIdentity(result, {
       projectId,
       id,
@@ -155,68 +164,15 @@ export async function reviseArticle(
       contextVersion: snapshot.version,
       policyVersion: policy.version,
     });
-    const revisedBody = renderArticle(result.draft);
-    if (
-      revisedBody.replace(/\s+/g, " ").trim() ===
-      job.bodyHtml.replace(/\s+/g, " ").trim()
-    ) {
-      await jobs.update(projectId, id, {
-        state: "needs_revision",
-        qualityPassed: 0,
-        review:
-          "blocking: The generated article is unchanged from the reviewed version.",
-        message:
-          "The revision returned the same article. Your feedback is saved on this version; review it and request another revision when ready.",
-      });
-      await jobs.releaseSlot(projectId, id);
-      const unchanged = await jobs.job(projectId, id);
-      return unchanged && policy.autopilot
-        ? { projectId, id, state: unchanged.state }
-        : null;
-    }
-    const current = await jobs.policy(projectId);
-    const passed =
-      result.review.pass &&
-      !result.review.issues.some((issue) => issue.severity === "blocking") &&
-      current?.enabled === 1 &&
-      current.version === policy.version &&
-      (await contextSnapshot(projectId)).version === snapshot.version;
-    const completed = await jobs.completeRevision(
+    await saveRevision(job, result, source.warning);
+  } catch (error) {
+    console.error("automation.revision failed:", error, {
       projectId,
-      id,
+      jobId: id,
       version,
-      job.featuredImageId ?? null,
-      {
-        state: passed ? "awaiting_approval" : "needs_revision",
-        version: version + 1,
-        title: result.draft.title,
-        metaDescription: result.draft.metaDescription,
-        bodyHtml: revisedBody,
-        qualityPassed: passed ? 1 : 0,
-        review: result.review.issues
-          .map((issue) => issue.severity + ": " + issue.reason)
-          .concat(source.warning ? ["warning: " + source.warning] : [])
-          .join("\n"),
-        n8nExecutionId: result.n8nExecutionId,
-        completedAt: new Date().toISOString(),
-        message: passed
-          ? source.warning
-            ? "Revised from feedback using historical site evidence. Verify current business facts and dates before approval."
-            : "Revised from feedback. Review and approve this version."
-          : "Revision did not pass quality or current Context checks. Agency attention required.",
-      },
-    );
-    if (!completed) throw new AppError("CONFLICT");
-    if (passed) {
-      try {
-        await prepareFeaturedImage(projectId, id, version + 1, "system:image");
-      } catch {
-        /* Keep the revised article available. */
-      }
-    }
-    await jobs.releaseSlot(projectId, id);
-  } catch {
-    await jobs.failRevision(
+      dispatched,
+    });
+    await revisions.failRevision(
       projectId,
       id,
       version,
@@ -227,11 +183,75 @@ export async function reviseArticle(
     );
     if (!dispatched) await jobs.releaseSlot(projectId, id, true);
   }
-  const updated = await jobs.job(projectId, id);
-  // Email only for projects already configured for automatic review delivery.
-  return updated && policy.autopilot
-    ? { projectId, id, state: updated.state }
-    : null;
+}
+
+async function saveRevision(
+  job: Job,
+  result: AutomationResult,
+  warning: string | null,
+) {
+  const { projectId, id, version } = job;
+  const revisedBody = renderArticle(result.draft);
+  if (
+    revisedBody.replace(/\s+/g, " ").trim() ===
+    (job.bodyHtml ?? "").replace(/\s+/g, " ").trim()
+  ) {
+    await jobs.update(projectId, id, {
+      state: "needs_revision",
+      qualityPassed: 0,
+      review:
+        "blocking: The generated article is unchanged from the reviewed version.",
+      message:
+        "The revision returned the same article. Your feedback is saved on this version; review it and request another revision when ready.",
+    });
+    await jobs.releaseSlot(projectId, id);
+    return;
+  }
+  const passed =
+    result.review.pass &&
+    !result.review.issues.some((issue) => issue.severity === "blocking");
+  const completed = await revisions.completeRevision(
+    projectId,
+    id,
+    version,
+    job.featuredImageId ?? null,
+    {
+      state: passed ? "awaiting_approval" : "needs_revision",
+      version: version + 1,
+      title: result.draft.title,
+      metaDescription: result.draft.metaDescription,
+      bodyHtml: revisedBody,
+      qualityPassed: passed ? 1 : 0,
+      review: result.review.issues
+        .map((issue) => issue.severity + ": " + issue.reason)
+        .concat(warning ? ["warning: " + warning] : [])
+        .join("\n"),
+      n8nExecutionId: result.n8nExecutionId,
+      completedAt: new Date().toISOString(),
+      message: passed
+        ? warning
+          ? "Revised from feedback using historical site evidence. Verify current business facts and dates before approval."
+          : "Revised from feedback. Review and approve this version."
+        : "Revision did not pass the quality review. Agency attention required.",
+    },
+  );
+  if (!completed) throw new AppError("CONFLICT");
+  if (passed) {
+    try {
+      await prepareFeaturedImage(
+        { projectId, jobId: id, version: version + 1 },
+        "system:image",
+      );
+    } catch (error) {
+      // Keep the revised article available without an image.
+      console.error("automation.revision-image failed:", error, {
+        projectId,
+        jobId: id,
+      });
+    }
+  }
+  await jobs.releaseSlot(projectId, id);
+  if (passed) await requestClientReview(projectId, id);
 }
 
 function assertRevisionIdentity(

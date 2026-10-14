@@ -1,6 +1,10 @@
+import { ProjectImageRepository as projectImages } from "./ProjectImageRepository";
 import { AppError } from "@/server/lib/errors";
 import { AutomationRepository } from "./AutomationRepository";
-import { FeaturedImageRepository as images } from "./FeaturedImageRepository";
+import {
+  FeaturedImageRepository as images,
+  type ArticleVersion,
+} from "./FeaturedImageRepository";
 import {
   decodeImageBase64,
   encodeImageBase64,
@@ -63,6 +67,8 @@ async function currentDraft(projectId: string, jobId: string, version: number) {
       "awaiting_approval",
       "needs_revision",
       "ready_for_manual_publication",
+      "ready_to_publish",
+      "publication_blocked",
     ].includes(job.state) ||
     job.wordpressPostId ||
     job.publishedUrl
@@ -71,59 +77,41 @@ async function currentDraft(projectId: string, jobId: string, version: number) {
   return job;
 }
 
+type ImageRequest = {
+  visualBrief?: string;
+  feedback?: string;
+  rememberFeedback?: boolean;
+  /** Generate even if the article already has an image or auto-images are off. */
+  force?: boolean;
+};
+
 export async function prepareFeaturedImage(
-  projectId: string,
-  jobId: string,
-  version: number,
+  article: ArticleVersion,
   actorId: string,
-  visualBrief = "",
-  feedback = "",
-  rememberFeedback = false,
-  force = false,
+  request: ImageRequest = {},
 ) {
+  const { projectId, jobId, version } = article;
+  const visualBrief = request.visualBrief ?? "";
+  const feedback = (request.feedback ?? "").trim();
+  const force = request.force ?? false;
   const job = await currentDraft(projectId, jobId, version);
   if (!force && job.featuredImageId) return images.selected(projectId, jobId);
-  const preferences = await images.preferences(projectId);
+  const preferences = await projectImages.preferences(projectId);
   if (!force && preferences?.autoGenerate !== 1) return null;
   if (
-    rememberFeedback &&
-    feedback.trim() &&
-    !(await images.rememberFeedback(projectId, feedback.trim()))
+    request.rememberFeedback &&
+    feedback &&
+    !(await projectImages.rememberFeedback(projectId, feedback))
   )
     throw new AppError("CONFLICT");
-  const refreshed = rememberFeedback
-    ? await images.preferences(projectId)
+  const refreshed = request.rememberFeedback
+    ? await projectImages.preferences(projectId)
     : preferences;
   const preferred = refreshed?.preferredAssetId
-    ? await images.asset(projectId, refreshed.preferredAssetId)
+    ? await projectImages.asset(projectId, refreshed.preferredAssetId)
     : null;
-  if (preferred && !force && !visualBrief.trim() && !feedback.trim()) {
-    const id = crypto.randomUUID();
-    const inserted = await images.begin({
-      id,
-      projectId,
-      jobId,
-      artifactVersion: version,
-      status: "ready",
-      source: "client",
-      r2Key: preferred.r2Key,
-      sourceAssetId: preferred.id,
-      sourceUrl: preferred.sourceUrl,
-      rightsNote: preferred.rightsNote,
-      visualBrief: "Preferred project asset",
-      altText: preferred.altText,
-      bytes: preferred.bytes,
-      actorId,
-      createdAt: new Date().toISOString(),
-    });
-    if (
-      inserted &&
-      (await images.select(projectId, jobId, version, id, actorId))
-    )
-      return images.image(projectId, id);
-    return null;
-  }
-  const id = crypto.randomUUID();
+  if (preferred && !force && !visualBrief.trim() && !feedback)
+    return usePreferredAsset(article, preferred, actorId);
   const brief =
     visualBrief.trim().slice(0, 600) ||
     defaultImageBrief(job.title ?? job.topic, job.topic);
@@ -131,13 +119,51 @@ export async function prepareFeaturedImage(
     title: job.title ?? job.topic,
     topic: job.topic,
     visualBrief: brief,
-    feedback: feedback.trim(),
+    feedback,
     style: refreshed?.style ?? "",
     colors: refreshed?.colors ?? "",
     reference: refreshed?.reference ?? "",
     avoid: refreshed?.avoid ?? "",
     guidance: refreshed?.guidance ?? "",
   });
+  return generateFeaturedImage(article, actorId, { brief, prompt });
+}
+
+async function usePreferredAsset(
+  article: ArticleVersion,
+  preferred: NonNullable<Awaited<ReturnType<typeof projectImages.asset>>>,
+  actorId: string,
+) {
+  const id = crypto.randomUUID();
+  const inserted = await images.begin({
+    id,
+    projectId: article.projectId,
+    jobId: article.jobId,
+    artifactVersion: article.version,
+    status: "ready",
+    source: "client",
+    r2Key: preferred.r2Key,
+    sourceAssetId: preferred.id,
+    sourceUrl: preferred.sourceUrl,
+    rightsNote: preferred.rightsNote,
+    visualBrief: "Preferred project asset",
+    altText: preferred.altText,
+    bytes: preferred.bytes,
+    actorId,
+    createdAt: new Date().toISOString(),
+  });
+  if (inserted && (await images.select(article, id, actorId)))
+    return images.image(article.projectId, id);
+  return null;
+}
+
+async function generateFeaturedImage(
+  article: ArticleVersion,
+  actorId: string,
+  { brief, prompt }: { brief: string; prompt: string },
+) {
+  const { projectId, jobId, version } = article;
+  const id = crypto.randomUUID();
   if (
     !(await images.begin({
       id,
@@ -207,12 +233,17 @@ export async function prepareFeaturedImage(
     )
       throw new AppError("CONFLICT");
     stage = "selection";
-    if (!(await images.select(projectId, jobId, version, id, actorId)))
+    if (!(await images.select(article, id, actorId)))
       throw new AppError(
         "CONFLICT",
         "Image was saved, but the draft changed before it could be selected.",
       );
   } catch (error) {
+    console.error("automation.featured-image failed:", error, {
+      projectId,
+      jobId,
+      stage,
+    });
     const detail =
       error instanceof AppError && error.message !== error.code
         ? ` ${error.message}`
@@ -240,7 +271,7 @@ export async function uploadProjectImageAsset(
   const r2Key = assetKey(projectId, id);
   await storeFeaturedImage(r2Key, normalized.bytes);
   if (
-    !(await images.addAsset({
+    !(await projectImages.addAsset({
       id,
       projectId,
       r2Key,
@@ -253,7 +284,7 @@ export async function uploadProjectImageAsset(
     }))
   )
     throw new AppError("CONFLICT");
-  return images.asset(projectId, id);
+  return projectImages.asset(projectId, id);
 }
 
 export async function replaceFeaturedImage(
@@ -297,19 +328,18 @@ export async function replaceFeaturedImage(
     }))
   )
     throw new AppError("CONFLICT");
-  if (!(await images.select(projectId, jobId, version, id, actorId)))
+  if (!(await images.select({ projectId, jobId, version }, id, actorId)))
     throw new AppError("CONFLICT");
   return images.image(projectId, id);
 }
 
 export async function updateFeaturedAlt(
-  projectId: string,
-  jobId: string,
-  version: number,
+  article: ArticleVersion,
   imageId: string,
   actorId: string,
   altText: string,
 ) {
+  const { projectId, jobId, version } = article;
   await currentDraft(projectId, jobId, version);
   const image = await images.image(projectId, imageId);
   if (
@@ -319,16 +349,7 @@ export async function updateFeaturedAlt(
     image.status !== "ready"
   )
     throw new AppError("CONFLICT");
-  if (
-    !(await images.select(
-      projectId,
-      jobId,
-      version,
-      imageId,
-      actorId,
-      altText.trim(),
-    ))
-  )
+  if (!(await images.select(article, imageId, actorId, altText.trim())))
     throw new AppError("CONFLICT");
   return images.image(projectId, imageId);
 }
@@ -349,7 +370,7 @@ export async function reuseFeaturedImage(
     actorId,
   );
   if (!imageId) throw new AppError("CONFLICT");
-  if (!(await images.select(projectId, jobId, version, imageId, actorId))) {
+  if (!(await images.select({ projectId, jobId, version }, imageId, actorId))) {
     await images.fail(
       projectId,
       imageId,

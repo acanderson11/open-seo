@@ -1,3 +1,4 @@
+import { MAX_ARTICLE_VERSION } from "@/types/schemas/automation";
 import { AutomationRepository } from "./AutomationRepository";
 import { PendingFeedbackRepository } from "./PendingFeedbackRepository";
 import {
@@ -28,9 +29,7 @@ export async function savePendingFeedback(
     throw new AppError("CONFLICT");
   if (
     input.queueRevision &&
-    (!policy.enabled ||
-      input.version >= 4 ||
-      policy.version !== job.policyVersion)
+    (!policy.enabled || input.version >= MAX_ARTICLE_VERSION)
   )
     throw new AppError("CONFLICT");
   const feedback = validateFeedback(

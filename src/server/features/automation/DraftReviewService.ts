@@ -2,14 +2,27 @@ import {
   validateFeedback,
   type ContentFeedback,
 } from "@/types/schemas/contentFeedback";
+import { MAX_ARTICLE_VERSION } from "@/types/schemas/automation";
 import { z } from "zod";
 import { AutopilotRepository as auto } from "./AutopilotRepository";
 import { AutomationRepository as jobs } from "./AutomationRepository";
-import { contextSnapshot } from "./AutomationService";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { AppError } from "@/server/lib/errors";
 import { FeaturedImageRepository as featuredImages } from "./FeaturedImageRepository";
-import { boundedJson } from "./WordpressPublication";
+import { boundedJson } from "./AutomationResult";
+import { approvedDelivery } from "./ArticleDelivery";
+import { executionHookRequest, executionSecret } from "./n8nExecution";
+
+type Job = NonNullable<Awaited<ReturnType<typeof jobs.job>>>;
+type Decision = "approved" | "changes_requested";
+
+const emptyFeedback: ContentFeedback = {
+  message: "",
+  scope: "article",
+  category: "voice",
+  instruction: "",
+};
+
 export async function reviewTokenHash(token: string) {
   return Array.from(
     new Uint8Array(
@@ -33,6 +46,12 @@ export async function reviewOrigin() {
     throw new AppError("AUTH_CONFIG_MISSING");
   return url.origin;
 }
+
+/**
+ * Emails a private review link for the current version. Client approval
+ * always uses a link; agency reviewers get one only under autopilot, since
+ * otherwise they review in OpenSEO.
+ */
 export async function notifyReviewer(projectId: string, id: string) {
   const job = await jobs.job(projectId, id),
     policy = await jobs.policy(projectId);
@@ -40,14 +59,15 @@ export async function notifyReviewer(projectId: string, id: string) {
     !job ||
     !policy?.reviewerEmail ||
     !policy.enabled ||
-    !policy.autopilot ||
     job.state !== "awaiting_approval" ||
-    !["agency", "client"].includes(policy.approval)
+    !(
+      policy.approval === "client" ||
+      (policy.approval === "agency" && policy.autopilot)
+    )
   )
     throw new AppError("CONFLICT");
-  const origin = await reviewOrigin(),
-    secret = await getOptionalEnvValue("AGENCY_N8N_EXECUTION_SECRET");
-  if (!secret) throw new AppError("AUTH_CONFIG_MISSING");
+  const origin = await reviewOrigin();
+  await executionSecret();
   if (!(await auto.claimNotification(projectId, id))) return;
   try {
     const token = crypto.randomUUID() + crypto.randomUUID(),
@@ -64,28 +84,26 @@ export async function notifyReviewer(projectId: string, id: string) {
     const result = z.object({ sent: z.literal(true) }).parse(
       await boundedJson(
         await fetch(
-          "https://n8n.andmktg.com/webhook/openseo-review-notification",
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-openseo-execution-secret": secret,
-            },
-            body: JSON.stringify({
+          await executionHookRequest(
+            "openseo-review-notification",
+            {
               recipient: policy.reviewerEmail,
               title: job.title ?? job.topic,
               reviewUrl: `${origin}/review#${token}`,
               expiresDays: 14,
-            }),
-            redirect: "manual",
-            signal: AbortSignal.timeout(30000),
-          },
+            },
+            30_000,
+          ),
         ),
       ),
     );
     if (result.sent)
       await jobs.update(projectId, id, { notificationState: "sent" });
-  } catch {
+  } catch (error) {
+    console.error("automation.review-notification failed:", error, {
+      projectId,
+      jobId: id,
+    });
     await jobs.update(projectId, id, {
       notificationState: "unknown",
       message:
@@ -94,6 +112,95 @@ export async function notifyReviewer(projectId: string, id: string) {
     throw new AppError("UPSTREAM_UNAVAILABLE");
   }
 }
+
+/** Sends the client their review link when a version becomes ready for them. */
+export async function requestClientReview(projectId: string, id: string) {
+  const policy = await jobs.policy(projectId);
+  if (policy?.approval !== "client") return;
+  try {
+    await notifyReviewer(projectId, id);
+  } catch (error) {
+    // notifyReviewer records delivery failures on the job.
+    console.error("automation.client-review request failed:", error, {
+      projectId,
+      jobId: id,
+    });
+  }
+}
+
+const reviewableStates = (decision: Decision) =>
+  decision === "changes_requested"
+    ? ["awaiting_approval", "needs_revision"]
+    : ["awaiting_approval"];
+
+const revisionState = (version: number) =>
+  version >= MAX_ARTICLE_VERSION ? "needs_revision" : "revision_queued";
+
+async function assertImageReady(projectId: string, job: Job) {
+  if (!job.featuredImageId) return;
+  const image = await featuredImages.image(projectId, job.featuredImageId);
+  if (
+    !image ||
+    image.jobId !== job.id ||
+    image.artifactVersion !== job.version ||
+    image.status !== "ready" ||
+    image.altText.trim().length < 15
+  )
+    throw new AppError("CONFLICT");
+}
+
+// Approval is of this exact version. Context or settings edited since it was
+// drafted do not block it; the reviewer sees that the Context has changed.
+async function nextTransition(projectId: string, job: Job, decision: Decision) {
+  if (decision === "changes_requested")
+    return { state: revisionState(job.version) };
+  if (!job.qualityPassed) throw new AppError("CONFLICT");
+  await assertImageReady(projectId, job);
+  return approvedDelivery(projectId, job.kind);
+}
+
+export async function decideDraft(
+  projectId: string,
+  jobId: string,
+  actorId: string,
+  decision: Decision,
+  review: {
+    version: number;
+    feedback?: ContentFeedback;
+    featuredImageId: string | null;
+  },
+) {
+  const { version, feedback, featuredImageId } = review;
+  const job = await jobs.job(projectId, jobId),
+    policy = await jobs.policy(projectId);
+  if (!job || !policy) throw new AppError("NOT_FOUND");
+  // An agency actor can never stand in for client approval.
+  if (policy.approval !== "agency") throw new AppError("FORBIDDEN");
+  if (
+    !policy.enabled ||
+    job.version !== version ||
+    job.featuredImageId !== featuredImageId ||
+    !job.bodyHtml ||
+    !reviewableStates(decision).includes(job.state)
+  )
+    throw new AppError("CONFLICT");
+  const transition = await nextTransition(projectId, job, decision);
+  if (
+    !(await jobs.approve(projectId, jobId, actorId, decision, {
+      ...transition,
+      artifactVersion: version,
+      featuredImageId,
+      feedback: validateFeedback(
+        decision,
+        feedback ?? emptyFeedback,
+        job.bodyHtml,
+      ),
+    }))
+  )
+    throw new AppError("CONFLICT");
+  return jobs.job(projectId, jobId);
+}
+
 export async function loadPrivateReview(token: string) {
   const tokenHash = await reviewTokenHash(z.string().length(72).parse(token)),
     link = await auto.link(tokenHash);
@@ -104,49 +211,30 @@ export async function loadPrivateReview(token: string) {
   if (
     !job ||
     !policy?.enabled ||
-    !policy.autopilot ||
     policy.approval !== link.role ||
     policy.reviewerEmail !== link.recipient ||
     job.version !== link.artifactVersion ||
-    job.policyVersion !== policy.version ||
     job.state !== "awaiting_approval" ||
     !job.qualityPassed
   )
     throw new AppError("CONFLICT");
-  if ((await contextSnapshot(link.projectId)).version !== job.contextVersion)
-    throw new AppError("CONFLICT");
-  if (job.featuredImageId) {
-    const image = await featuredImages.image(link.projectId, job.featuredImageId);
-    if (!image || image.jobId !== job.id || image.artifactVersion !== job.version || image.status !== "ready" || image.altText.trim().length < 15)
-      throw new AppError("CONFLICT");
-  }
+  await assertImageReady(link.projectId, job);
+  const delivery = await approvedDelivery(link.projectId, job.kind);
   return {
     link,
     job,
     tokenHash,
-    delivery:
-      policy.delivery === "wordpress" && !!job.wordpressVersion
-        ? "wordpress"
-        : "manual",
+    delivery: delivery.wordpressVersion ? "wordpress" : "manual",
   };
 }
 export async function decidePrivateReview(
   token: string,
-  decision: "approved" | "changes_requested",
+  decision: Decision,
   feedback?: ContentFeedback,
 ) {
-  const { link, job, tokenHash, delivery } = await loadPrivateReview(token);
-  const validated = validateFeedback(
-    decision,
-    feedback ?? {
-      message: "",
-      scope: "article",
-      category: "voice",
-      instruction: "",
-    },
-    job.bodyHtml ?? "",
-  );
+  const { link, job, tokenHash } = await loadPrivateReview(token);
   const role = z.enum(["agency", "client"]).parse(link.role);
+  const transition = await nextTransition(link.projectId, job, decision);
   if (
     !(await jobs.approve(
       link.projectId,
@@ -154,16 +242,15 @@ export async function decidePrivateReview(
       `private-link:${tokenHash}`,
       decision,
       {
-        state:
-          decision === "approved"
-            ? "ready_for_manual_publication"
-            : job.version >= 4
-              ? "needs_revision"
-              : "revision_queued",
+        ...transition,
         role,
         artifactVersion: job.version,
         featuredImageId: job.featuredImageId,
-        feedback: validated,
+        feedback: validateFeedback(
+          decision,
+          feedback ?? emptyFeedback,
+          job.bodyHtml ?? "",
+        ),
       },
     ))
   )
@@ -172,7 +259,7 @@ export async function decidePrivateReview(
   return {
     message:
       decision === "approved"
-        ? delivery === "wordpress"
+        ? transition.state === "ready_to_publish"
           ? "Approved. WordPress publishing is queued."
           : "Approved. The article is ready for manual copy/paste. Nothing has been published automatically."
         : "Feedback saved. A revised draft will need a new approval. After three revisions, the agency takes over.",

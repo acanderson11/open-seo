@@ -1,3 +1,4 @@
+import { MAX_ARTICLE_VERSION } from "@/types/schemas/automation";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -120,12 +121,17 @@ export function BlockedDraftReview({
         </button>
         <button
           className="btn btn-sm btn-primary ml-2"
-          disabled={save.isPending || length > 4000 || !length || version >= 4}
+          disabled={
+            save.isPending ||
+            length > 4000 ||
+            !length ||
+            version >= MAX_ARTICLE_VERSION
+          }
           onClick={() => save.mutate(true)}
         >
           Revise using feedback
         </button>
-        {version >= 4 && (
+        {version >= MAX_ARTICLE_VERSION && (
           <p className="text-sm">
             This article has reached its three-revision limit.
           </p>

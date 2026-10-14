@@ -1,19 +1,27 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { changeAutomationArticle } from "@/serverFunctions/automation";
+import {
+  changeAutomationArticle,
+  exportAutomationDraft,
+} from "@/serverFunctions/automation";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
+
+const manualStates = ["ready_for_manual_publication", "publication_blocked"];
+
 export function ArticleDeliveryActions({
   projectId,
   jobId,
   version,
-  manual,
+  state,
+  sentToWordpress,
   onChanged,
 }: {
   projectId: string;
   jobId: string;
   version: number;
-  manual: boolean;
+  state: string;
+  sentToWordpress: boolean;
   onChanged: () => void;
 }) {
   const [url, setUrl] = useState("");
@@ -37,11 +45,45 @@ export function ArticleDeliveryActions({
         getStandardErrorMessage(error, "Could not update article status."),
       ),
   });
+  const copy = useMutation({
+    mutationFn: async () => {
+      const result = await exportAutomationDraft({
+        data: { projectId, jobId },
+      });
+      await navigator.clipboard.writeText(result.bodyHtml);
+    },
+    onSuccess: () =>
+      toast.success(
+        "Clean HTML copied. Paste into a WordPress Custom HTML block or code editor.",
+      ),
+    onError: (error) =>
+      toast.error(
+        getStandardErrorMessage(error, "Could not copy this article."),
+      ),
+  });
+  const manual = manualStates.includes(state) && !sentToWordpress;
+  const queued = state === "ready_to_publish";
+  if (!manual && !queued) return null;
   return (
     <section
       className="space-y-3 rounded border border-base-300 p-3"
       aria-label="Article delivery"
     >
+      {queued && (
+        <p className="text-sm">
+          Approved for WordPress. It publishes on the next scheduler check,
+          within about five minutes.
+        </p>
+      )}
+      {manual && (
+        <button
+          className="btn btn-sm"
+          disabled={copy.isPending}
+          onClick={() => copy.mutate()}
+        >
+          Copy clean HTML
+        </button>
+      )}
       <button
         className="btn btn-sm"
         disabled={mutation.isPending}

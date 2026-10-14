@@ -85,7 +85,8 @@ export class ContentAutopilotWorkflow extends WorkflowEntrypoint<
       await pgStep(step, "Deliver approval request", once, () =>
         notifyPlannedDraft(job),
       );
-    } catch {
+    } catch (error) {
+      console.error("autopilot.workflow failed:", error, { runId, projectId });
       await pgStep(step, "Record planning interruption", once, async () => {
         await auto.finishRun(
           runId,

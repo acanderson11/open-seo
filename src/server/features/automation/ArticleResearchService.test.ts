@@ -1,6 +1,15 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({
-  search: vi.fn(),
+  search: vi.fn<
+    () => Promise<{
+      data: {
+        type: string;
+        url: string;
+        title?: string;
+        description?: string;
+      }[];
+    }>
+  >(),
   pages: vi.fn(),
   hosted: vi.fn(),
   save: vi.fn(),

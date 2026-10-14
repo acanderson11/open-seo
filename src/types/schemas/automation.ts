@@ -8,7 +8,7 @@ export const automationPolicySchema = projectRequest.extend({
   monthlyTarget: z.number().int().min(1).max(20).optional(),
   reviewerEmail: z.string().email().max(254).optional(),
   monthlyLimit: z.number().int().min(1).max(100),
-  approval: z.enum(["none", "agency", "client", "both"]),
+  approval: z.enum(["agency", "client"]),
   expectedVersion: z.string().nullable(),
 });
 export const draftRequestSchema = projectRequest.extend({
@@ -80,13 +80,5 @@ export function renderArticle(draft: AutomationResult["draft"]) {
     })
     .join("\n");
 }
-export function draftState(
-  qualityPassed: boolean,
-  approval: string,
-  contextMatches: boolean,
-) {
-  if (!qualityPassed || !contextMatches) return "needs_revision";
-  return approval === "none"
-    ? "ready_for_manual_publication"
-    : "awaiting_approval";
-}
+/** A draft and at most three revisions of it; feedback on the last one needs the agency. */
+export const MAX_ARTICLE_VERSION = 4;

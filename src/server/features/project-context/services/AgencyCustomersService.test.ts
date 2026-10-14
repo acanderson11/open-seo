@@ -4,7 +4,9 @@ vi.mock("@/server/lib/runtime-env", () => ({ getOptionalEnvValue: mocks.env }));
 import { previewCustomers } from "./AgencyCustomersService";
 beforeEach(() => {
   vi.unstubAllGlobals();
-  mocks.env.mockResolvedValue("test-key");
+  mocks.env.mockImplementation(async (name: string) =>
+    name === "AGENCY_N8N_ORIGIN" ? "https://n8n.andmktg.com" : "test-key",
+  );
 });
 describe("Customers read-only integration", () => {
   it("reports missing configuration without fetching", async () => {

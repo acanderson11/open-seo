@@ -11,7 +11,11 @@ import { savePendingFeedback } from "@/server/features/automation/PendingFeedbac
 import { feedbackFields } from "@/types/schemas/contentFeedback";
 import { ContentLearningRepository as learning } from "@/server/features/automation/ContentLearningRepository";
 import { AutopilotRepository as auto } from "@/server/features/automation/AutopilotRepository";
-import { reviewOrigin } from "@/server/features/automation/DraftReviewService";
+import {
+  decideDraft,
+  reviewOrigin,
+} from "@/server/features/automation/DraftReviewService";
+import { MANUAL_DELIVERY_STATES } from "@/server/features/automation/ArticleLifecycleRepository";
 import { ExecutionTaskRepository as tasksRepo } from "@/server/features/automation/ExecutionTaskRepository";
 import {
   createTask,
@@ -31,10 +35,7 @@ import { requireOrgPermission } from "@/server/auth/org-gate";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { AppError } from "@/server/lib/errors";
 import { AutomationRepository as repo } from "@/server/features/automation/AutomationRepository";
-import {
-  startDraft,
-  decideDraft,
-} from "@/server/features/automation/AutomationService";
+import { startDraft } from "@/server/features/automation/AutomationService";
 import {
   projectRequest,
   automationPolicySchema,
@@ -187,17 +188,14 @@ export const exportAutomationDraft = createServerFn({ method: "POST" })
   .validator(detailRequest)
   .handler(async ({ context, data }) => {
     await authorize(context);
-    const job = await repo.job(context.projectId, data.jobId),
-      policy = await repo.policy(context.projectId);
-    if (!job || !policy) throw new AppError("NOT_FOUND");
-    const snapshot = await contextSnapshot(context.projectId);
+    const job = await repo.job(context.projectId, data.jobId);
+    if (!job) throw new AppError("NOT_FOUND");
+    // The approved version is exportable even if Context or settings changed since.
     if (
-      job.state !== "ready_for_manual_publication" ||
+      !MANUAL_DELIVERY_STATES.includes(job.state) ||
+      job.wordpressPostId ||
       !job.bodyHtml ||
-      !job.qualityPassed ||
-      !policy.enabled ||
-      policy.version !== job.policyVersion ||
-      snapshot.version !== job.contextVersion
+      !job.qualityPassed
     )
       throw new AppError("CONFLICT");
     return {

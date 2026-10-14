@@ -7,7 +7,7 @@ import {
   websiteHost,
 } from "@/types/schemas/agencyCustomers";
 const TABLE_ID = "RLjJledGZa2ZBRf5";
-const source = `https://n8n.andmktg.com/projects/cXWRX4xyhj6SYmuN/datatables/${TABLE_ID}`;
+const PROJECT_ID = "cXWRX4xyhj6SYmuN";
 const pageSchema = z.object({
   data: z.array(customerRowSchema),
   nextCursor: z.string().nullable().optional(),
@@ -31,10 +31,17 @@ async function readBoundedJson(response: Response) {
     await reader.cancel();
   }
 }
-// Fixed destination; this secret never reaches the browser, model, or redirects.
+// Operator-configured destination; the key never reaches the browser, model, or redirects.
 export async function previewCustomers(domain: string) {
-  const apiKey = await getOptionalEnvValue("AGENCY_N8N_API_KEY");
-  if (!apiKey) return { connected: false as const, records: [] };
+  const [apiKey, origin] = await Promise.all([
+    getOptionalEnvValue("AGENCY_N8N_API_KEY"),
+    getOptionalEnvValue("AGENCY_N8N_ORIGIN"),
+  ]);
+  if (!apiKey || !origin) return { connected: false as const, records: [] };
+  const source = new URL(
+    `/projects/${PROJECT_ID}/datatables/${TABLE_ID}`,
+    origin,
+  ).href;
   const host = websiteHost(domain);
   if (!host) throw new AppError("VALIDATION_ERROR");
   const records = [],
@@ -42,9 +49,7 @@ export async function previewCustomers(domain: string) {
   let cursor = "";
   const signal = AbortSignal.timeout(25000);
   for (let index = 0; index < 20; index++) {
-    const url = new URL(
-      `https://n8n.andmktg.com/api/v1/data-tables/${TABLE_ID}/rows`,
-    );
+    const url = new URL(`/api/v1/data-tables/${TABLE_ID}/rows`, origin);
     url.searchParams.set("limit", "100");
     if (cursor) url.searchParams.set("cursor", cursor);
     const response = await fetch(url, {

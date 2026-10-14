@@ -69,14 +69,12 @@ it("rejects empty HTML shells even when the server returns 200", async () => {
 it("recognizes SiteGround challenges before reading or analyzing their body", async () => {
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        new Response("<html>Host challenge</html>", {
-          status: 202,
-          headers: { "sg-captcha": "challenge" },
-        }),
-      ),
+    vi.fn().mockResolvedValue(
+      new Response("<html>Host challenge</html>", {
+        status: 202,
+        headers: { "sg-captcha": "challenge" },
+      }),
+    ),
   );
   const diagnostic = vi.fn();
   expect(

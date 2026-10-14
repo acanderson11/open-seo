@@ -15,10 +15,11 @@ const m = vi.hoisted(() => ({
 vi.mock("./AutomationRepository", () => ({
   AutomationRepository: { job: m.job },
 }));
+vi.mock("./ProjectImageRepository", () => ({
+  ProjectImageRepository: { preferences: m.preferences, asset: m.asset },
+}));
 vi.mock("./FeaturedImageRepository", () => ({
   FeaturedImageRepository: {
-    preferences: m.preferences,
-    asset: m.asset,
     begin: m.begin,
     recordProviderResult: m.recordProviderResult,
     fail: m.fail,
@@ -62,18 +63,34 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it.each([1, 2])("does not create an automatic image for version %i without opt-in", async (version) => {
-  m.job.mockResolvedValue({ ...await m.job(), version });
-  expect(await prepareFeaturedImage("p1", "j1", version, "system:image")).toBeNull();
-  expect(m.begin).not.toHaveBeenCalled();
-  expect(m.asset).not.toHaveBeenCalled();
-  expect(m.provider).not.toHaveBeenCalled();
-  expect(m.caption).not.toHaveBeenCalled();
-});
+it.each([1, 2])(
+  "does not create an automatic image for version %i without opt-in",
+  async (version) => {
+    m.job.mockResolvedValue({ ...(await m.job()), version });
+    expect(
+      await prepareFeaturedImage(
+        { projectId: "p1", jobId: "j1", version: version },
+        "system:image",
+      ),
+    ).toBeNull();
+    expect(m.begin).not.toHaveBeenCalled();
+    expect(m.asset).not.toHaveBeenCalled();
+    expect(m.provider).not.toHaveBeenCalled();
+    expect(m.caption).not.toHaveBeenCalled();
+  },
+);
 
 it("does not apply a preferred library image when automatic images are off", async () => {
-  m.preferences.mockResolvedValue({ autoGenerate: 0, preferredAssetId: "asset-1" });
-  expect(await prepareFeaturedImage("p1", "j1", 2, "system:image")).toBeNull();
+  m.preferences.mockResolvedValue({
+    autoGenerate: 0,
+    preferredAssetId: "asset-1",
+  });
+  expect(
+    await prepareFeaturedImage(
+      { projectId: "p1", jobId: "j1", version: 2 },
+      "system:image",
+    ),
+  ).toBeNull();
   expect(m.asset).not.toHaveBeenCalled();
   expect(m.begin).not.toHaveBeenCalled();
   expect(m.provider).not.toHaveBeenCalled();
@@ -81,13 +98,22 @@ it("does not apply a preferred library image when automatic images are off", asy
 
 it("starts automatic image generation after the project opts in", async () => {
   m.preferences.mockResolvedValue({ autoGenerate: 1, preferredAssetId: null });
-  await prepareFeaturedImage("p1", "j1", 2, "system:image");
-  expect(m.begin).toHaveBeenCalledWith(expect.objectContaining({ status: "generating" }));
+  await prepareFeaturedImage(
+    { projectId: "p1", jobId: "j1", version: 2 },
+    "system:image",
+  );
+  expect(m.begin).toHaveBeenCalledWith(
+    expect.objectContaining({ status: "generating" }),
+  );
   expect(m.provider).toHaveBeenCalledTimes(1);
 });
 
 it("keeps provider model and cost when WebP normalization fails, with a safe stage label", async () => {
-  await prepareFeaturedImage("p1", "j1", 2, "agency", "", "", false, true);
+  await prepareFeaturedImage(
+    { projectId: "p1", jobId: "j1", version: 2 },
+    "agency",
+    { force: true },
+  );
   expect(m.provider).toHaveBeenCalledTimes(1);
   expect(m.recordProviderResult).toHaveBeenCalledWith(
     "p1",

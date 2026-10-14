@@ -10,38 +10,17 @@ import {
   startDraft,
   validateTarget,
 } from "./AutomationService";
-import { boundedJson } from "./WordpressPublication";
+import { boundedJson } from "./AutomationResult";
 import { GscService } from "@/server/features/gsc/services/GscService";
 import { SearchOpportunityService } from "@/server/features/ga4/services/SearchOpportunityService";
 import { ProjectContextService } from "@/server/features/project-context/services/ProjectContextService";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import { discoverSiteUrls, readPages } from "@/server/lib/scrape";
-import {
-  getOptionalEnvValue,
-  isHostedServerAuthMode,
-} from "@/server/lib/runtime-env";
+import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { plannerResult, dueForDraft } from "@/types/schemas/autopilot";
 import { AppError } from "@/server/lib/errors";
 import { notifyReviewer } from "./DraftReviewService";
-export async function callExecutionHook(
-  path: "openseo-plan-content" | "openseo-review-notification",
-  payload: unknown,
-) {
-  const secret = await getOptionalEnvValue("AGENCY_N8N_EXECUTION_SECRET");
-  if (!secret) throw new AppError("AUTH_CONFIG_MISSING");
-  return boundedJson(
-    await fetch(`https://n8n.andmktg.com/webhook/${path}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-openseo-execution-secret": secret,
-      },
-      body: JSON.stringify(payload),
-      redirect: "manual",
-      signal: AbortSignal.timeout(90000),
-    }),
-  );
-}
+import { executionHookRequest } from "./n8nExecution";
 export async function collectPlanningInput(projectId: string) {
   const project = await ProjectRepository.getProjectById(projectId);
   if (!project?.domain) throw new AppError("NOT_FOUND");
@@ -158,7 +137,9 @@ export async function selectOpportunity(
   input: Awaited<ReturnType<typeof collectPlanningInput>>,
 ) {
   const result = plannerResult.parse(
-    await callExecutionHook("openseo-plan-content", input),
+    await boundedJson(
+      await fetch(await executionHookRequest("openseo-plan-content", input)),
+    ),
   );
   if (
     result.projectId !== input.projectId ||
@@ -230,8 +211,6 @@ export async function producePlannedDraft(
       rationale:
         selection.rationale + " Evidence: " + selection.evidenceIds.join(", "),
       sourceUrls: selection.sourceUrls,
-      wordpressVersion:
-        policy.delivery === "wordpress" ? connection?.version : undefined,
     },
   );
   await auto.finishRun(
@@ -285,7 +264,11 @@ export async function scheduleAutopilot(env: Env) {
           revisionVersion: job.version,
         },
       });
-    } catch {
+    } catch (error) {
+      console.error("autopilot.revision-start failed:", error, {
+        projectId: job.projectId,
+        jobId: job.id,
+      });
       await jobs.update(job.projectId, job.id, {
         state: "needs_revision",
         message:
@@ -316,7 +299,10 @@ export async function scheduleAutopilot(env: Env) {
         id: run.id,
         params: { runId: run.id, projectId: project.id },
       });
-    } catch {
+    } catch (error) {
+      console.error("autopilot.planning-start failed:", error, {
+        projectId: project.id,
+      });
       await auto.finishRun(
         run.id,
         "dispatch_unknown",

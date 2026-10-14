@@ -5,6 +5,7 @@ vi.mock("./ArticleResearchService", () => ({
 vi.mock("./FeaturedImageService", () => ({
   prepareFeaturedImage: vi.fn(async () => null),
 }));
+vi.mock("./DraftReviewService", () => ({ requestClientReview: vi.fn() }));
 import { z } from "zod";
 vi.mock("./BriefRepository", () => ({
   BriefRepository: {
@@ -12,13 +13,15 @@ vi.mock("./BriefRepository", () => ({
   },
 }));
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
+import type { AutomationRepository } from "./AutomationRepository";
+import type { ArticleRevisionRepository } from "./ArticleRevisionRepository";
 const m = vi.hoisted(() => ({
-  brief: vi.fn(),
+  brief: vi.fn<() => unknown>(),
   job: vi.fn(),
   policy: vi.fn(),
   reserve: vi.fn(),
-  update: vi.fn(),
-  completeRevision: vi.fn(),
+  update: vi.fn<typeof AutomationRepository.update>(),
+  completeRevision: vi.fn<typeof ArticleRevisionRepository.completeRevision>(),
   failRevision: vi.fn(),
   release: vi.fn(),
   history: vi.fn(),
@@ -33,9 +36,13 @@ vi.mock("./AutomationRepository", () => ({
     policy: m.policy,
     reserve: m.reserve,
     update: m.update,
+    releaseSlot: m.release,
+  },
+}));
+vi.mock("./ArticleRevisionRepository", () => ({
+  ArticleRevisionRepository: {
     completeRevision: m.completeRevision,
     failRevision: m.failRevision,
-    releaseSlot: m.release,
   },
 }));
 vi.mock("./ContentLearningRepository", () => ({
@@ -44,16 +51,20 @@ vi.mock("./ContentLearningRepository", () => ({
 vi.mock("./AutomationService", () => ({
   contextSnapshot: m.snapshot,
   validateTarget: (s: string) => s,
-  boundedResult: async (r: Response) => r.json(),
 }));
 vi.mock("@/server/features/projects/repositories/ProjectRepository", () => ({
   ProjectRepository: { getProjectById: m.project },
 }));
 vi.mock("@/server/lib/scrape", () => ({ readPages: m.pages }));
 vi.mock("@/server/lib/runtime-env", () => ({
-  getOptionalEnvValue: async () => "fixture",
+  getOptionalEnvValue: async (name: string) =>
+    name === "AGENCY_N8N_ORIGIN" ? "https://n8n.example.test" : "fixture",
 }));
 import { reviseArticle } from "./ArticleRevisionService";
+import {
+  automationResultSchema,
+  renderArticle,
+} from "@/types/schemas/automation";
 beforeEach(() => {
   vi.resetAllMocks();
   m.brief.mockImplementation(() => ({
@@ -115,6 +126,16 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllGlobals());
+const sentPayload = async (request: Request) =>
+  z
+    .object({
+      context: z.string(),
+      sources: z.array(z.object({ text: z.string() })),
+      revision: z.object({
+        comments: z.array(z.object({ message: z.string() })),
+      }),
+    })
+    .parse(await request.json());
 const result = {
   jobId: "j1",
   projectId: "p1",
@@ -122,15 +143,20 @@ const result = {
   contextVersion: "ctx1",
   policyVersion: "pv1",
   n8nExecutionId: "remote1",
+  publicationPerformed: false,
   draft: {
     title: "Revised",
     metaDescription: "Description",
-    blocks: [{ type: "paragraph", text: "Clearer example" }],
+    blocks: [
+      { type: "h2", text: "Example" },
+      { type: "paragraph", text: "Clearer example" },
+      { type: "paragraph", text: "Why it matters" },
+    ],
   },
   review: { pass: true, issues: [] },
 };
 it("passes the previous draft and scoped feedback, then requires fresh approval", async () => {
-  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+  const fetch = vi.fn(async (request: Request) => {
     const payload = z
       .object({
         context: z.string(),
@@ -143,7 +169,7 @@ it("passes the previous draft and scoped feedback, then requires fresh approval"
         }),
         feedback: z.array(z.unknown()),
       })
-      .parse(JSON.parse(z.string().parse(init.body)));
+      .parse(await request.json());
     expect(payload.context).toContain("do not block revision or approval");
     expect(payload.revision.version).toBe(2);
     expect(payload.revision.previousBodyHtml).toContain("Original");
@@ -161,18 +187,14 @@ it("passes the previous draft and scoped feedback, then requires fresh approval"
   await reviseArticle("p1", "j1", 1);
   expect(fetch).toHaveBeenCalledOnce();
   expect(m.pages).not.toHaveBeenCalled();
-  expect(m.completeRevision).toHaveBeenLastCalledWith(
-    "p1",
-    "j1",
-    1,
-    null,
-    expect.objectContaining({
-      state: "awaiting_approval",
-      qualityPassed: 1,
-      bodyHtml: "<p>Clearer example</p>",
-      version: 2,
-    }),
-  );
+  const [, , , selectedImage, revised] = m.completeRevision.mock.lastCall ?? [];
+  expect(selectedImage).toBeNull();
+  expect(revised).toMatchObject({
+    state: "awaiting_approval",
+    qualityPassed: 1,
+    version: 2,
+  });
+  expect(revised?.bodyHtml).toContain("<p>Clearer example</p>");
   expect(m.release).toHaveBeenCalledOnce();
 });
 it("sends only feedback attached to the version being revised", async () => {
@@ -201,8 +223,8 @@ it("sends only feedback attached to the version being revised", async () => {
       },
     ],
   });
-  const fetch = vi.fn(async (_url: string, init: RequestInit) => {
-    const payload = JSON.parse(String(init.body));
+  const fetch = vi.fn(async (request: Request) => {
+    const payload = await sentPayload(request);
     expect(payload.revision.comments).toHaveLength(1);
     expect(payload.revision.comments[0].message).toContain(
       "Clarify the conclusion",
@@ -215,28 +237,21 @@ it("sends only feedback attached to the version being revised", async () => {
   expect(fetch).toHaveBeenCalledOnce();
 });
 it("keeps feedback on the reviewed version when n8n returns unchanged article", async () => {
+  m.job.mockResolvedValue({
+    ...(await m.job()),
+    bodyHtml: renderArticle(automationResultSchema.parse(result).draft),
+  });
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () =>
-      Response.json({
-        ...result,
-        draft: {
-          ...result.draft,
-          blocks: [{ type: "paragraph", text: "Original supported article" }],
-        },
-      }),
-    ),
+    vi.fn(async () => Response.json(result)),
   );
   await reviseArticle("p1", "j1", 1);
-  expect(m.update).toHaveBeenLastCalledWith(
-    "p1",
-    "j1",
-    expect.objectContaining({
-      state: "needs_revision",
-      qualityPassed: 0,
-      message: expect.stringContaining("same article"),
-    }),
-  );
+  const [, , unchanged] = m.update.mock.lastCall ?? [];
+  expect(unchanged).toMatchObject({
+    state: "needs_revision",
+    qualityPassed: 0,
+  });
+  expect(unchanged?.message).toContain("same article");
   expect(m.update.mock.calls.some(([, , value]) => value.version === 2)).toBe(
     false,
   );
@@ -272,8 +287,8 @@ it("keeps a historical source warning visible on a successful revision", async (
   m.pages.mockResolvedValue({ pages: [], blocked: true });
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (_url: string, init: RequestInit) => {
-      const payload = JSON.parse(String(init.body));
+    vi.fn(async (request: Request) => {
+      const payload = await sentPayload(request);
       expect(payload.sources[0].text).toContain(
         "Historical site page captured 2025-01-01",
       );
@@ -282,19 +297,12 @@ it("keeps a historical source warning visible on a successful revision", async (
     }),
   );
   await reviseArticle("p1", "j1", 1);
-  expect(m.completeRevision).toHaveBeenLastCalledWith(
-    "p1",
-    "j1",
-    1,
-    null,
-    expect.objectContaining({
-      state: "awaiting_approval",
-      review: expect.stringContaining(
-        "warning: Live site pages could not be read",
-      ),
-      message: expect.stringContaining("historical site evidence"),
-    }),
+  const revised = m.completeRevision.mock.lastCall?.[4];
+  expect(revised?.state).toBe("awaiting_approval");
+  expect(revised?.review).toContain(
+    "warning: Live site pages could not be read",
   );
+  expect(revised?.message).toContain("historical site evidence");
 });
 it("does not dispatch a duplicate claim or a fourth revision", async () => {
   const fetch = vi.fn();

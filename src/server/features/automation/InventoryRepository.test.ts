@@ -1,4 +1,5 @@
-import { readFileSync, mkdtempSync } from "node:fs";
+import { agencyTestSchemaSql } from "./agency-test-schema";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClient, type Client } from "@libsql/client";
@@ -25,11 +26,7 @@ beforeAll(async () => {
         for (const statement of build(executor)) await statement;
       }),
   }));
-  await client.executeMultiple(
-    "PRAGMA foreign_keys=ON; CREATE TABLE projects(id text PRIMARY KEY); INSERT INTO projects VALUES ('p1'),('p2');" +
-      readFileSync("drizzle/0050_site_inventory.sql", "utf8") +
-      readFileSync("drizzle/0051_inventory_read_diagnostics.sql", "utf8"),
-  );
+  await client.executeMultiple(agencyTestSchemaSql());
   repo = (await import("./InventoryRepository")).InventoryRepository;
 });
 afterAll(() => client.close());

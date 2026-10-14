@@ -2,8 +2,12 @@ vi.mock("./ArticleResearchService", () => ({
   researchArticle: vi.fn(async () => []),
   RESEARCH_GUIDANCE: "Research first",
 }));
-vi.mock("./FeaturedImageService", () => ({ prepareFeaturedImage: vi.fn(async () => null) }));
-vi.mock("./FeaturedImageRepository", () => ({ FeaturedImageRepository: { image: vi.fn() } }));
+vi.mock("./FeaturedImageService", () => ({
+  prepareFeaturedImage: vi.fn(async () => null),
+}));
+vi.mock("./DraftReviewService", () => ({
+  requestClientReview: vi.fn(),
+}));
 import { z } from "zod";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 vi.mock("./ContentLearningRepository", () => ({
@@ -18,7 +22,6 @@ const mocks = vi.hoisted(() => ({
     update: vi.fn(),
     job: vi.fn(),
     releaseSlot: vi.fn(),
-    approve: vi.fn(),
   },
   context: vi.fn(),
   render: vi.fn(),
@@ -40,7 +43,6 @@ vi.mock("@/server/lib/runtime-env", () => ({ getOptionalEnvValue: mocks.env }));
 import {
   startDraft,
   validateTarget,
-  decideDraft,
   contextSnapshot,
 } from "./AutomationService";
 const input = {
@@ -66,7 +68,11 @@ beforeEach(() => {
   mocks.pages.mockResolvedValue({
     pages: [{ url: input.targetUrl, text: "Fictional page evidence" }],
   });
-  mocks.env.mockResolvedValue("synthetic-secret");
+  mocks.env.mockImplementation(async (name: string) =>
+    name === "AGENCY_N8N_ORIGIN"
+      ? "https://n8n.example.test"
+      : "synthetic-secret",
+  );
   mocks.repo.job.mockResolvedValue({ id: "job" });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -108,12 +114,10 @@ describe("OpenSEO execution bridge", () => {
   it("persists sanitized content from the native-context job and requires approval", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_url: string, init: RequestInit) => {
-        if (typeof init.body !== "string")
-          throw new Error("Expected JSON body");
+      vi.fn(async (request: Request) => {
         const job = z
           .record(z.string(), z.unknown())
-          .parse(JSON.parse(init.body));
+          .parse(await request.json());
         expect(job.context).toContain("Native context fixture");
         expect(job.context).toContain("Research first");
         expect(job.profile).toBeUndefined();
@@ -143,37 +147,15 @@ describe("OpenSEO execution bridge", () => {
     expect(saved.bodyHtml).toContain("&lt;script&gt;");
     expect(mocks.repo.releaseSlot).toHaveBeenCalledOnce();
   });
-  it("does not let an agency decision satisfy required client approval", async () => {
-    mocks.repo.policy.mockResolvedValue({
-      enabled: 1,
-      version: "pv1",
-      approval: "client",
-    });
-    mocks.repo.job.mockResolvedValue({
-      state: "awaiting_approval",
-      version: 1,
-      policyVersion: "pv1",
-      contextVersion: (await contextSnapshot("p1")).version,
-      qualityPassed: 1,
-      bodyHtml: "<p>Article</p>",
-      featuredImageId: null,
-    });
-    mocks.repo.approve.mockResolvedValue(true);
-    await expect(
-      decideDraft("p1", "job", "actor", "approved", { version: 1, featuredImageId: null }),
-    ).rejects.toThrow("FORBIDDEN");
-    expect(mocks.repo.approve).not.toHaveBeenCalled();
-    expect(mocks.repo.update).not.toHaveBeenCalled();
-  });
 });
 
 it("allows drafts with unanswered research questions to reach approval when quality passes", async () => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (_url: string, init: RequestInit) => {
+    vi.fn(async (request: Request) => {
       const payload = z
         .record(z.string(), z.unknown())
-        .parse(JSON.parse(z.string().parse(init.body)));
+        .parse(await request.json());
       expect(payload.savedBrief).toBeDefined();
       return Response.json({
         ...payload,

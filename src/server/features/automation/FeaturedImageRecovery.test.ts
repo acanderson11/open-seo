@@ -16,9 +16,11 @@ const m = vi.hoisted(() => ({
 vi.mock("./AutomationRepository", () => ({
   AutomationRepository: { job: m.job },
 }));
+vi.mock("./ProjectImageRepository", () => ({
+  ProjectImageRepository: { preferences: m.preferences },
+}));
 vi.mock("./FeaturedImageRepository", () => ({
   FeaturedImageRepository: {
-    preferences: m.preferences,
     begin: m.begin,
     recordProviderResult: m.recordProviderResult,
     fail: m.fail,
@@ -80,7 +82,12 @@ beforeEach(() => {
 
 it("does not regenerate an already selected image even when automatic images are enabled", async () => {
   m.preferences.mockResolvedValue({ autoGenerate: 1 });
-  expect(await prepareFeaturedImage("p1", "j1", 4, "system:image")).toEqual({
+  expect(
+    await prepareFeaturedImage(
+      { projectId: "p1", jobId: "j1", version: 4 },
+      "system:image",
+    ),
+  ).toEqual({
     id: "old-image",
     status: "ready",
   });
@@ -90,14 +97,12 @@ it("does not regenerate an already selected image even when automatic images are
 
 it("uses an explicit visual brief rather than replacing it with the default scene", async () => {
   await prepareFeaturedImage(
-    "p1",
-    "j1",
-    4,
+    { projectId: "p1", jobId: "j1", version: 4 },
     "agency",
-    "Two unmarked wooden boxes beside a window.",
-    "",
-    false,
-    true,
+    {
+      visualBrief: "Two unmarked wooden boxes beside a window.",
+      force: true,
+    },
   );
   expect(m.provider.mock.calls[0][0]).toContain(
     "Visual direction: Two unmarked wooden boxes beside a window.",
@@ -106,7 +111,11 @@ it("uses an explicit visual brief rather than replacing it with the default scen
 });
 
 it("a rejected replacement never selects a failed image or changes the article's current selection", async () => {
-  await prepareFeaturedImage("p1", "j1", 4, "agency", "", "", false, true);
+  await prepareFeaturedImage(
+    { projectId: "p1", jobId: "j1", version: 4 },
+    "agency",
+    { force: true },
+  );
   expect(m.provider).toHaveBeenCalledTimes(1);
   expect(m.select).not.toHaveBeenCalled();
   expect(m.clone).not.toHaveBeenCalled();
@@ -115,7 +124,7 @@ it("a rejected replacement never selects a failed image or changes the article's
     expect.any(String),
     expect.stringContaining("Visible letters on the monitor."),
   );
-  expect((await m.job()).featuredImageId).toBe("old-image");
+  expect(await m.job()).toMatchObject({ featuredImageId: "old-image" });
   expect(m.provider.mock.calls[0][0]).toContain(
     "following the requested visual style",
   );
@@ -126,9 +135,7 @@ it("restores a prior image without provider or processing calls", async () => {
   await reuseFeaturedImage("p1", "j1", 4, "prior-image", "agency");
   expect(m.clone).toHaveBeenCalledWith("p1", "j1", "prior-image", 4, "agency");
   expect(m.select).toHaveBeenCalledWith(
-    "p1",
-    "j1",
-    4,
+    { projectId: "p1", jobId: "j1", version: 4 },
     "reused-image",
     "agency",
   );

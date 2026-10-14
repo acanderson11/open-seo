@@ -271,6 +271,7 @@ const dataEnv = {
   GOOGLE_CLIENT_ID: optionalVar("GOOGLE_CLIENT_ID"),
   GOOGLE_CLIENT_SECRET: optionalSecret("GOOGLE_CLIENT_SECRET"),
   AGENCY_REVIEW_ORIGIN: optionalVar("AGENCY_REVIEW_ORIGIN"),
+  AGENCY_N8N_ORIGIN: optionalVar("AGENCY_N8N_ORIGIN"),
   AGENCY_N8N_API_KEY: optionalSecret("AGENCY_N8N_API_KEY"),
   AGENCY_N8N_EXECUTION_SECRET: optionalSecret("AGENCY_N8N_EXECUTION_SECRET"),
   OPENROUTER_API_KEY: optionalSecret("OPENROUTER_API_KEY"),
@@ -428,7 +429,16 @@ export default Alchemy.Stack(
     const app = yield* Cloudflare.Worker("open-seo", {
       name: workerName(stage),
       // Prod serves the real domains; the zone is inferred from the hostname.
-      domain: prod ? ["app.openseo.so", "www.app.openseo.so"] : stage === "selfhost" ? ["seo.andmktg.com", ...(reviewOrigin === "https://review.andmktg.com" ? ["review.andmktg.com"] : [])] : undefined,
+      domain: prod
+        ? ["app.openseo.so", "www.app.openseo.so"]
+        : stage === "selfhost"
+          ? [
+              "seo.andmktg.com",
+              ...(reviewOrigin === "https://review.andmktg.com"
+                ? ["review.andmktg.com"]
+                : []),
+            ]
+          : undefined,
       // Prebuilt worker from `vite build` (@cloudflare/vite-plugin). The entry
       // exports the DO + WorkflowEntrypoint classes (re-exported by
       // src/server.ts), which `bundle: false` requires. Sibling chunks under

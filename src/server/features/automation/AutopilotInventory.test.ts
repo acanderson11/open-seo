@@ -32,7 +32,10 @@ vi.mock("@/server/features/projects/repositories/ProjectRepository", () => ({
   ProjectRepository: {},
 }));
 vi.mock("@/server/lib/runtime-env", () => ({
-  getOptionalEnvValue: async () => "synthetic-test-secret",
+  getOptionalEnvValue: async (name: string) =>
+    name === "AGENCY_N8N_ORIGIN"
+      ? "https://n8n.example.test"
+      : "synthetic-test-secret",
   isHostedServerAuthMode: async () => false,
 }));
 import { selectOpportunity } from "./AutopilotService";
@@ -73,21 +76,19 @@ const input: Parameters<typeof selectOpportunity>[0] = {
 beforeEach(() =>
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          projectId: "p1",
-          contextVersion: "ctx",
-          selection: {
-            action: "draft",
-            topic: "CRM implementation",
-            rationale: "Business priority",
-            evidenceIds: ["business-targets"],
-            sourceUrls: ["https://example.com/"],
-          },
-        }),
-      ),
+    vi.fn().mockResolvedValue(
+      Response.json({
+        projectId: "p1",
+        contextVersion: "ctx",
+        selection: {
+          action: "draft",
+          topic: "CRM implementation",
+          rationale: "Business priority",
+          evidenceIds: ["business-targets"],
+          sourceUrls: ["https://example.com/"],
+        },
+      }),
+    ),
   ),
 );
 afterEach(() => vi.unstubAllGlobals());
@@ -100,36 +101,32 @@ it("holds a proposed article with strong existing-page overlap", async () => {
 it("allows a distinct topic through existing evidence validation", async () => {
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          projectId: "p1",
-          contextVersion: "ctx",
-          selection: {
-            action: "draft",
-            topic: "Preparing customer records for migration",
-            rationale: "Business priority",
-            evidenceIds: ["business-targets"],
-            sourceUrls: ["https://example.com/"],
-          },
-        }),
-      ),
+    vi.fn().mockResolvedValue(
+      Response.json({
+        projectId: "p1",
+        contextVersion: "ctx",
+        selection: {
+          action: "draft",
+          topic: "Preparing customer records for migration",
+          rationale: "Business priority",
+          evidenceIds: ["business-targets"],
+          sourceUrls: ["https://example.com/"],
+        },
+      }),
+    ),
   );
   expect((await selectOpportunity(input)).action).toBe("draft");
 });
 it("rejects a response for another project", async () => {
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          projectId: "p2",
-          contextVersion: "ctx",
-          selection: { action: "skip", reason: "Skip" },
-        }),
-      ),
+    vi.fn().mockResolvedValue(
+      Response.json({
+        projectId: "p2",
+        contextVersion: "ctx",
+        selection: { action: "skip", reason: "Skip" },
+      }),
+    ),
   );
   await expect(selectOpportunity(input)).rejects.toThrow("CONFLICT");
 });

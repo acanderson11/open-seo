@@ -5,8 +5,9 @@ import { normalizeAndValidateStartUrl } from "@/server/lib/audit/url-policy";
 import { SITE_USER_AGENT } from "@/shared/site-user-agent";
 import { AutopilotRepository as auto } from "./AutopilotRepository";
 import { AutomationRepository as jobs } from "./AutomationRepository";
-import { contextSnapshot, validateTarget } from "./AutomationService";
+import { validateTarget } from "./AutomationService";
 import { AppError } from "@/server/lib/errors";
+import { boundedJson } from "./AutomationResult";
 import type { wordpressSetup } from "@/types/schemas/autopilot";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import { FeaturedImageRepository as images } from "./FeaturedImageRepository";
@@ -21,26 +22,6 @@ const postSchema = z.object({
   status: z.string(),
   slug: z.string(),
 });
-export async function boundedJson(response: Response) {
-  if (!response.ok) throw new AppError("UPSTREAM_UNAVAILABLE");
-  const reader = response.body?.getReader();
-  if (!reader) throw new AppError("UPSTREAM_UNAVAILABLE");
-  const decoder = new TextDecoder();
-  let bytes = 0,
-    text = "";
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      bytes += chunk.value.length;
-      if (bytes > 600000) throw new AppError("UPSTREAM_UNAVAILABLE");
-      text += decoder.decode(chunk.value, { stream: true });
-    }
-  } finally {
-    await reader.cancel();
-  }
-  return JSON.parse(text + decoder.decode()) as unknown;
-}
 async function wpRequest(
   connection: { baseUrl: string; username: string; passwordCipher: string },
   path: string,
@@ -147,6 +128,11 @@ export async function connectWordpress(
     throw new WordpressConnectionError("permission");
   await auto.saveWordpress(connection);
 }
+const blockedMessage =
+  "Publication stopped before anything was sent to WordPress. Check the WordPress connection, or publish by hand.";
+
+// Publishes exactly what was approved; Context or settings edited since then
+// do not matter, but the delivery choice and the connection must not have.
 async function freshRelease(projectId: string, id: string) {
   const [job, policy, connection, project] = await Promise.all([
     jobs.job(projectId, id),
@@ -154,20 +140,18 @@ async function freshRelease(projectId: string, id: string) {
     auto.wordpress(projectId),
     ProjectRepository.getProjectById(projectId),
   ]);
-  if (!job || !policy || !connection || !project?.domain)
-    throw new AppError("CONFLICT");
-  const snapshot = await contextSnapshot(projectId);
-  if (
-    policy.delivery !== "wordpress" ||
-    !policy.enabled ||
-    !policy.autopilot ||
-    !job.qualityPassed ||
-    !job.bodyHtml ||
-    job.kind !== "new_content" ||
-    job.contextVersion !== snapshot.version ||
-    job.policyVersion !== policy.version ||
-    job.wordpressVersion !== connection.version
-  )
+  if (!job || !policy || !project?.domain) throw new AppError("CONFLICT");
+  if (policy.delivery !== "wordpress")
+    throw new AppError(
+      "CONFLICT",
+      "Delivery was switched to manual after approval. Copy and publish this article by hand, or return it to draft.",
+    );
+  if (!connection || job.wordpressVersion !== connection.version)
+    throw new AppError(
+      "CONFLICT",
+      "The WordPress connection changed after approval. Return the article to draft and approve it again to publish with the current connection.",
+    );
+  if (!job.qualityPassed || !job.bodyHtml || job.kind !== "new_content")
     throw new AppError("CONFLICT");
   validateTarget(connection.baseUrl, project.domain);
   return { job, connection };
@@ -254,12 +238,21 @@ export async function publishApprovedDraft(projectId: string, id: string) {
       publishedAt: new Date().toISOString(),
       message: "Published to WordPress after approval.",
     });
-  } catch {
+  } catch (error) {
+    console.error("automation.wordpress-publish failed:", error, {
+      projectId,
+      jobId: id,
+      dispatched,
+    });
+    const reason =
+      error instanceof AppError && error.message !== error.code
+        ? error.message
+        : blockedMessage;
     await jobs.update(projectId, id, {
       state: dispatched ? "publication_unknown" : "publication_blocked",
       message: dispatched
         ? "WordPress outcome needs reconciliation. No automatic repeat publish will be attempted."
-        : "Publication stopped: check current Context, approval settings, and WordPress connection.",
+        : reason,
     });
   }
 }

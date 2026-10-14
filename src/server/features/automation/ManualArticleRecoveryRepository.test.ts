@@ -1,41 +1,18 @@
-import type { runBatch } from "@/db/runBatch";
-import { readFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import { z } from "zod";
+import type * as Module from "./ManualArticleRecoveryRepository";
+import type { Client } from "@libsql/client";
 import { beforeAll, afterAll, beforeEach, it, expect, vi } from "vitest";
+import { openAgencyTestDb } from "./agency-test-schema";
 
 vi.mock("cloudflare:workers", () => ({ env: { DATABASE_PROVIDER: "d1" } }));
-const testDir = mkdtempSync(join(tmpdir(), "openseo-recovery-"));
-const testFile = join(testDir, "test.db");
 let client: Client;
-let recover: typeof import("./ManualArticleRecoveryRepository").recoverManualArticle;
+let recover: typeof Module.recoverManualArticle;
 
 beforeAll(async () => {
-  client = createClient({ url: "file:" + testFile.replaceAll("\\", "/") });
-  const testDb = drizzle(client);
-  vi.doMock("@/db", () => ({ db: testDb }));
-  vi.doMock("@/db/runBatch", () => ({
-    runBatch: async (build: Parameters<typeof runBatch>[0]) =>
-      testDb.transaction(async (tx) => {
-        type Executor = Parameters<Parameters<typeof runBatch>[0]>[0];
-        // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- test adapter mirrors D1 statements
-        const executor = tx as unknown as Executor;
-        for (const statement of build(executor)) await statement;
-      }),
-  }));
-  await client.executeMultiple(
-    "PRAGMA foreign_keys=ON; CREATE TABLE projects(id text PRIMARY KEY); INSERT INTO projects VALUES ('p1'),('p2');" +
-      readFileSync("drizzle/0045_content_execution.sql", "utf8") +
-      readFileSync("drizzle/0046_execution_board.sql", "utf8") +
-      readFileSync("drizzle/0047_content_autopilot.sql", "utf8") +
-      readFileSync("drizzle/0048_content_learning.sql", "utf8") +
-      readFileSync("drizzle/0049_optional_delivery.sql", "utf8") +
-      readFileSync("drizzle/0053_article_passage_comments.sql", "utf8") +
-      readFileSync("drizzle/0054_feedback_edit_token.sql", "utf8") +
-      readFileSync("drizzle/0055_article_approval_reopen.sql", "utf8"),
-  );
+  const test = await openAgencyTestDb();
+  client = test.client;
+  vi.doMock("@/db", () => ({ db: test.db }));
+  vi.doMock("@/db/runBatch", () => ({ runBatch: test.runBatch }));
   recover = (await import("./ManualArticleRecoveryRepository"))
     .recoverManualArticle;
 });
@@ -92,10 +69,9 @@ it("imports a manual version, preserves original and feedback, and releases only
   expect(job.rows[0].state).toBe("awaiting_approval");
   expect(job.rows[0].version).toBe(2);
   expect(job.rows[0].quality_passed).toBe(1);
-  expect(String(job.rows[0].review)).toContain(
-    "not an automated quality review",
-  );
-  expect(String(job.rows[0].review)).toContain("previous n8n execution 24501");
+  const review = z.string().parse(job.rows[0].review);
+  expect(review).toContain("not an automated quality review");
+  expect(review).toContain("previous n8n execution 24501");
   expect(job.rows[0].n8n_execution_id).toBeNull();
   const versions = await client.execute(
     "SELECT artifact_version,body_html FROM article_revisions WHERE job_id='j1' ORDER BY artifact_version",

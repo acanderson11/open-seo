@@ -1,16 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  draftState,
-  renderArticle,
-  automationResultSchema,
-} from "./automation";
+import { renderArticle, automationResultSchema } from "./automation";
 describe("execution artifact boundary", () => {
-  it("holds poor quality and stale context even without human approval", () => {
-    expect(draftState(false, "none", true)).toBe("needs_revision");
-    expect(draftState(true, "none", false)).toBe("needs_revision");
-    expect(draftState(true, "client", true)).toBe("awaiting_approval");
-    expect(draftState(true, "none", true)).toBe("ready_for_manual_publication");
-  });
   it("renders only supported markup and escapes executable content", () => {
     expect(
       renderArticle({

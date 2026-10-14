@@ -1,15 +1,25 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import type { ArticleFollowUpRepository } from "./ArticleFollowUpRepository";
+import type { GscService } from "@/server/features/gsc/services/GscService";
+
+type Finish = typeof ArticleFollowUpRepository.finish;
+type PerformanceInput = Parameters<typeof GscService.getPerformance>[0];
 
 const mocks = vi.hoisted(() => ({
   seed: vi.fn(),
   due: vi.fn(),
   claim: vi.fn(),
   job: vi.fn(),
-  finish: vi.fn(),
+  finish: vi.fn<(...args: Parameters<Finish>) => Promise<void>>(),
   createTask: vi.fn(),
   byRequest: vi.fn(),
   inspect: vi.fn(),
-  performance: vi.fn(),
+  performance:
+    vi.fn<
+      (
+        input: PerformanceInput,
+      ) => Promise<{ rows: { clicks: number; impressions: number }[] }>
+    >(),
 }));
 vi.mock("./ArticleFollowUpRepository", () => ({
   ArticleFollowUpRepository: {
@@ -79,7 +89,7 @@ afterEach(() => {
 
 describe("post-publication evidence handling", () => {
   it("retries a challenged page without creating a technical task", async () => {
-    const websiteFetch = vi.fn().mockResolvedValue(
+    const websiteFetch = vi.fn<typeof fetch>().mockResolvedValue(
       new Response("Blocked", {
         status: 202,
         headers: { "sg-captcha": "challenge" },
@@ -88,12 +98,9 @@ describe("post-publication evidence handling", () => {
     vi.stubGlobal("fetch", websiteFetch);
     const result = await run("technical");
     expect(result).toMatchObject({ state: "pending", outcome: "unavailable" });
-    expect(websiteFetch).toHaveBeenCalledWith(
-      job.publishedUrl,
-      expect.objectContaining({
-        headers: expect.objectContaining({ "user-agent": "OpenSEO" }),
-      }),
-    );
+    const [url, init] = websiteFetch.mock.calls[0];
+    expect(url).toBe(job.publishedUrl);
+    expect(new Headers(init?.headers).get("user-agent")).toBe("OpenSEO");
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
@@ -155,7 +162,7 @@ describe("post-publication evidence handling", () => {
       .mockResolvedValueOnce({ rows: [{ clicks: 20, impressions: 200 }] })
       .mockResolvedValueOnce({ rows: [{ clicks: 10, impressions: 100 }] });
     const result = await run("reassess_60");
-    expect(result.detail).toContain(
+    expect(result?.detail).toContain(
       "Prior 28 days: 10 clicks, 100 impressions",
     );
     const first = mocks.performance.mock.calls[0][0];

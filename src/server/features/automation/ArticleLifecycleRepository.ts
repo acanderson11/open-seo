@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { runBatch } from "@/db/runBatch";
 import {
@@ -7,6 +7,11 @@ import {
   automationReviewLinks as links,
   articleFeaturedImages as images,
 } from "@/db/schema";
+/** Approved articles a person can copy and publish by hand: manual delivery, or a WordPress publish that stopped before sending anything. */
+export const MANUAL_DELIVERY_STATES = [
+  "ready_for_manual_publication",
+  "publication_blocked",
+];
 export const ArticleLifecycleRepository = {
   async reopen(
     projectId: string,
@@ -34,7 +39,11 @@ export const ArticleLifecycleRepository = {
         .where(
           and(
             scope,
-            eq(jobs.state, "ready_for_manual_publication"),
+            inArray(jobs.state, [
+              "ready_for_manual_publication",
+              "ready_to_publish",
+              "publication_blocked",
+            ]),
             isNull(jobs.publishedUrl),
             isNull(jobs.wordpressPostId),
           ),
@@ -98,10 +107,9 @@ export const ArticleLifecycleRepository = {
               eq(jobs.projectId, projectId),
               eq(jobs.id, jobId),
               eq(jobs.version, version),
-              eq(jobs.state, "ready_for_manual_publication"),
+              inArray(jobs.state, MANUAL_DELIVERY_STATES),
               isNull(jobs.wordpressPostId),
               isNull(jobs.publishedUrl),
-              isNull(jobs.wordpressVersion),
               sql`not exists(select 1 from ${images} where ${images.projectId} = ${projectId} and ${images.jobId} = ${jobId} and ${images.artifactVersion} = ${version} and ${images.status} = 'generating')`,
             ),
           )
