@@ -1,3 +1,7 @@
+import * as sqliteBrief from "./brief.schema";
+import * as pgBrief from "./pg/brief.schema";
+import * as sqliteImage from "./image.schema";
+import * as pgImage from "./pg/image.schema";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getTableColumns, getTableName, is, Table } from "drizzle-orm";
@@ -5,7 +9,11 @@ import { getTableConfig as getSqliteTableConfig } from "drizzle-orm/sqlite-core"
 import { getTableConfig as getPgTableConfig } from "drizzle-orm/pg-core";
 import { sort } from "remeda";
 import { describe, expect, it } from "vitest";
+import * as sqliteInventory from "./inventory.schema";
+import * as pgInventory from "./pg/inventory.schema";
 import * as sqliteApp from "./app.schema";
+import * as sqliteAutomation from "./automation.schema";
+import * as pgAutomation from "./pg/automation.schema";
 import * as sqliteProjectContext from "./project-context.schema";
 import * as sqliteAudit from "./audit.schema";
 import * as sqliteSam from "./sam.schema";
@@ -146,6 +154,10 @@ function checkNames(table: Table, dialect: Dialect): string[] {
 
 const sqliteAppTables = tablesFrom(
   sqliteApp,
+  sqliteInventory,
+  sqliteBrief,
+  sqliteImage,
+  sqliteAutomation,
   sqliteProjectContext,
   sqliteAudit,
   sqliteSam,
@@ -156,6 +168,10 @@ const sqliteAppTables = tablesFrom(
 );
 const pgAppTables = tablesFrom(
   pgApp,
+  pgInventory,
+  pgBrief,
+  pgImage,
+  pgAutomation,
   pgProjectContext,
   pgAudit,
   pgSam,

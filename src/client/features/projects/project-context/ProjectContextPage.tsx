@@ -1,4 +1,6 @@
+import { LearnedGuidelines } from "./LearnedGuidelines";
 import * as React from "react";
+import { AgencyProfileSources } from "./AgencyProfileSources";
 import { useQuery } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
@@ -26,6 +28,8 @@ import {
 
 const SECTION_HINTS: Record<ProjectContextSectionKey, string> = {
   business_overview: "What you sell, who buys it, and where.",
+  target_topics:
+    "One topic or keyword per line. Include its business goal, priority, and any deadline. The planner weighs these alongside search opportunities.",
   current_goal: "What you're pushing for right now, and by when.",
   positioning: "Why someone picks you over the alternatives.",
   writing_preferences: "Voice, words to avoid, topics that are off-limits.",
@@ -34,6 +38,8 @@ const SECTION_HINTS: Record<ProjectContextSectionKey, string> = {
 const SECTION_PLACEHOLDERS: Record<ProjectContextSectionKey, string> = {
   business_overview:
     "e.g. Booking software for independent restaurants in the US and Canada. Buyers are owner-operators, not marketers.",
+  target_topics:
+    "Example: commercial HVAC maintenance — high priority; grow recurring service contracts.\nHeat pump installation costs — support the fall campaign.",
   current_goal:
     "e.g. Double organic signups by Q4. Comparison pages are the current bet.",
   positioning:
@@ -89,6 +95,8 @@ export function ProjectContextPage({ projectId }: { projectId: string }) {
         sections={context.sections}
         missingSections={context.missingSections}
       />
+
+      <LearnedGuidelines projectId={projectId} />
 
       <CompetitorsSection
         projectId={projectId}
@@ -160,6 +168,20 @@ function ProseSections({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      <AgencyProfileSources
+        projectId={projectId}
+        disabled={update.isPending}
+        canUse={(key) =>
+          drafts[key] === undefined && !stored.get(key)?.content.trim()
+        }
+        onUse={(key, value) =>
+          setDrafts((current) =>
+            current[key] !== undefined || stored.get(key)?.content.trim()
+              ? current
+              : { ...current, [key]: value },
+          )
+        }
+      />
       {missingSections.length === PROJECT_CONTEXT_SECTION_KEYS.length ? (
         <EmptyState>
           Nothing written down yet. Fill in what you can — or ask SAM to draft

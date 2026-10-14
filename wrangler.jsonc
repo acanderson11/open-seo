@@ -20,6 +20,7 @@
     "mode": "smart",
   },
   "workflows": [
+    {"name":"content-autopilot-workflow","binding":"CONTENT_AUTOPILOT_WORKFLOW","class_name":"ContentAutopilotWorkflow"},
     // The site-audit engine lives in the open-seo-audit aux worker
     // (wrangler.audit.jsonc) — its memory spikes (multi-MB Lighthouse
     // payloads, in-flight HTML) OOMed this worker's near-limit baseline
@@ -145,4 +146,5 @@
       "binding": "R2",
     },
   ],
+  "images": { "binding": "IMAGES" },
 }

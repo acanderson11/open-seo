@@ -9,6 +9,7 @@ export const PROJECT_CONTEXT_SECTION_KEYS = [
   "current_goal",
   "positioning",
   "writing_preferences",
+  "target_topics",
 ] as const;
 
 const projectContextSectionKeySchema = z.enum(PROJECT_CONTEXT_SECTION_KEYS);
@@ -25,6 +26,7 @@ export const PROJECT_CONTEXT_SECTION_LABELS: Record<
   current_goal: "Current goal",
   positioning: "Positioning",
   writing_preferences: "Writing preferences",
+  target_topics: "Target topics and keywords",
 };
 
 /** Cap on every prose section, enforced by the service and hinted in the UI. */

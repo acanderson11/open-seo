@@ -7,6 +7,7 @@ import {
 } from "@/client/features/audit/results/export";
 import type { AuditResultsData } from "@/client/features/audit/results/types";
 import { isLighthouseFailure } from "@/client/features/audit/results/AuditResultsTableFilterLogic";
+import { getSiteUrlSyntaxError } from "@/shared/site-url-input";
 import {
   IssuesView,
   resolveIssueSeverity,
@@ -39,6 +40,19 @@ export function ResultsView({
     () => pages.filter((page) => page.fetchClass === "blocked").length,
     [pages],
   );
+
+  if (getSiteUrlSyntaxError(audit.startUrl)) {
+    return (
+      <div
+        role="alert"
+        className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 text-sm"
+      >
+        This audit was started with an invalid website address ({audit.startUrl}
+        ). Its results do not describe the intended website. Start a new audit
+        with a single complete address, such as https://example.com.
+      </div>
+    );
+  }
 
   return (
     <>

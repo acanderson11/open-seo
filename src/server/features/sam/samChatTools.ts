@@ -1,3 +1,4 @@
+import { getSeoWorkPlanTool } from "@/server/mcp/tools/seo-work-plan";
 import { tool, type Tool, type ToolSet } from "ai";
 import { z, type ZodRawShape } from "zod";
 import { withPgClient } from "@/db";
@@ -338,6 +339,7 @@ export function buildSamMcpTools(
       execute: () => Promise.resolve({ factSheet: openSeoFactSheet }),
     }),
     ...scrapeTools(project.domain),
+    get_seo_work_plan: adaptTool(getSeoWorkPlanTool),
     whoami: adaptTool(whoamiTool),
     // Writes only: the project's memory is already injected into every turn as
     // a read-only context block, so get_project_context would just re-fetch it.

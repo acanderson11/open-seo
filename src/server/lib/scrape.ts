@@ -5,13 +5,14 @@
 // gracefully (less text); a Browser Rendering upgrade can slot in behind this
 // same interface later.
 
+import { analyzeHtml } from "@/server/lib/audit/page-analyzer";
 import { normalizeAndValidateStartUrl } from "@/server/lib/audit/url-policy";
+import { SITE_USER_AGENT } from "@/shared/site-user-agent";
 
 export const MAX_PAGES = 5;
 const PER_PAGE_CHAR_LIMIT = 4000;
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
-const USER_AGENT = "OpenSEO-Onboarding/1.0 (+https://openseo.so)";
 
 type ScrapedPage = {
   url: string;
@@ -47,10 +48,38 @@ async function readBoundedText(response: Response): Promise<string | null> {
   return result;
 }
 
-async function fetchText(url: string): Promise<string | null> {
+/** Challenges and partial responses must never become website evidence. */
+async function readCompletePageText(
+  response: Response,
+): Promise<string | null> {
+  if (
+    response.status !== 200 ||
+    response.headers.get("sg-captcha") === "challenge" ||
+    response.headers.get("cf-mitigated") === "challenge"
+  ) {
+    await response.body?.cancel();
+    return null;
+  }
+  const text = await readBoundedText(response);
+  if (!text) return null;
+  const opening = text.slice(0, 12000);
+  if (
+    /\/\.well-known\/sgcaptcha\//i.test(opening) ||
+    /cf-chl-|checking your browser|just a moment|verify you are human/i.test(
+      opening,
+    )
+  )
+    return null;
+  return text;
+}
+
+async function fetchText(
+  url: string,
+  allowRedirect = true,
+): Promise<string | null> {
   try {
     const response = await fetch(url, {
-      headers: { "user-agent": USER_AGENT, accept: "text/html,*/*" },
+      headers: { "user-agent": SITE_USER_AGENT, accept: "text/html,*/*" },
       // Manual redirects so we can re-validate each hop against the SSRF guard;
       // redirect:"follow" would let a 30x to an internal host bypass it.
       redirect: "manual",
@@ -58,6 +87,7 @@ async function fetchText(url: string): Promise<string | null> {
     });
 
     if (response.status >= 300 && response.status < 400) {
+      if (!allowRedirect) return null;
       const location = response.headers.get("location");
       if (!location) return null;
       let redirectUrl: string;
@@ -71,16 +101,14 @@ async function fetchText(url: string): Promise<string | null> {
       }
       // One hop only; fetch the validated destination without following further.
       const redirected = await fetch(redirectUrl, {
-        headers: { "user-agent": USER_AGENT, accept: "text/html,*/*" },
+        headers: { "user-agent": SITE_USER_AGENT, accept: "text/html,*/*" },
         redirect: "manual",
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
-      if (!redirected.ok) return null;
-      return await readBoundedText(redirected);
+      return await readCompletePageText(redirected);
     }
 
-    if (!response.ok) return null;
-    return await readBoundedText(response);
+    return await readCompletePageText(response);
   } catch {
     return null;
   }
@@ -103,7 +131,10 @@ function parseSitemapUrls(xml: string, origin: string): string[] {
     } catch {
       continue;
     }
-    if (resolved.startsWith(origin) && !resolved.endsWith(".xml")) {
+    if (
+      new URL(resolved).origin === origin &&
+      !new URL(resolved).pathname.endsWith(".xml")
+    ) {
       urls.push(resolved);
     }
   }
@@ -218,4 +249,80 @@ export async function readSite(
     return { pages: [], blocked: true };
   }
   return readPages(discovered.urls, maxPages);
+}
+
+/** Inventory uses the native analyzer. Redirects are not attributed to their source. */
+export async function readInventoryPage(
+  rawUrl: string,
+  onFailure?: (diagnostic: { reason: string; status: number | null }) => void,
+) {
+  let reason = "url-validation";
+  let status: number | null = null;
+  let htmlCharacters = 0;
+  let bodyCharacters = 0;
+  let page = null;
+  try {
+    const url = await normalizeAndValidateStartUrl(rawUrl);
+    reason = "fetch";
+    const response = await fetch(url, {
+      headers: { "user-agent": SITE_USER_AGENT, accept: "text/html,*/*" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    status = response.status;
+    reason = status >= 300 && status < 400 ? "redirect" : "http-error";
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
+    reason = "siteground-challenge";
+    if (response.headers.get("sg-captcha") === "challenge") {
+      await response.body?.cancel();
+      return null;
+    }
+    reason = "challenge";
+    if (response.headers.get("cf-mitigated") === "challenge") {
+      await response.body?.cancel();
+      return null;
+    }
+    reason = "body-read";
+    const html = await readBoundedText(response);
+    htmlCharacters = html?.length ?? 0;
+    reason = "empty-or-oversized";
+    if (!html) return null;
+    reason = "siteground-challenge";
+    if (/\/\.well-known\/sgcaptcha\//i.test(html.slice(0, 12000))) return null;
+    reason = "http-incomplete";
+    if (status !== 200) return null;
+    reason = "not-html";
+    if (!/<(?:html|body|main|article)\b/i.test(html)) return null;
+    reason = "challenge";
+    if (
+      /cf-chl-|checking your browser|just a moment|verify you are human/i.test(
+        html.slice(0, 12000),
+      )
+    )
+      return null;
+    reason = "analyzer";
+    const analyzed = analyzeHtml(html, url, status, 0);
+    bodyCharacters = analyzed.bodyText.trim().length;
+    reason = "empty-content";
+    if (bodyCharacters < 40) return null;
+    page = analyzed;
+    return page;
+  } catch {
+    return null;
+  } finally {
+    if (!page) {
+      onFailure?.({ reason, status });
+      // Fixed diagnostic fields only: never log page text, query strings or credentials.
+      console.warn({
+        event: "inventory-read",
+        reason,
+        status,
+        htmlCharacters,
+        bodyCharacters,
+      });
+    }
+  }
 }

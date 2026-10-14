@@ -1,4 +1,6 @@
 import { AppError } from "@/server/lib/errors";
+import { SITE_USER_AGENT } from "@/shared/site-user-agent";
+import { getSiteUrlSyntaxError } from "@/shared/site-url-input";
 
 const BLOCKED_HOSTS = new Set([
   "localhost",
@@ -210,9 +212,10 @@ export async function normalizeAndValidateStartUrl(
   input: string,
 ): Promise<string> {
   let raw = input.trim();
-  if (!raw) throw new AppError("VALIDATION_ERROR");
+  const syntaxError = getSiteUrlSyntaxError(raw);
+  if (syntaxError) throw new AppError("VALIDATION_ERROR", syntaxError);
 
-  if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
+  if (!/^https?:\/\//i.test(raw)) {
     raw = `https://${raw}`;
   }
 
@@ -263,7 +266,7 @@ export async function resolveStartUrlRedirects(
       response = await fetch(current, {
         method: "HEAD",
         redirect: "manual",
-        headers: { "User-Agent": "OpenSEO-Audit/1.0" },
+        headers: { "User-Agent": SITE_USER_AGENT },
         signal: AbortSignal.timeout(START_URL_PROBE_TIMEOUT_MS),
       });
     } catch {

@@ -50,6 +50,7 @@ import { Route as ProjectPProjectIdSamRouteImport } from './routes/_project/p/$p
 import { Route as ProjectPProjectIdRankTrackingRouteImport } from './routes/_project/p/$projectId/rank-tracking'
 import { Route as ProjectPProjectIdPromptExplorerRouteImport } from './routes/_project/p/$projectId/prompt-explorer'
 import { Route as ProjectPProjectIdKeywordsRouteImport } from './routes/_project/p/$projectId/keywords'
+import { Route as ProjectPProjectIdExecutionRouteImport } from './routes/_project/p/$projectId/execution'
 import { Route as ProjectPProjectIdDomainRouteImport } from './routes/_project/p/$projectId/domain'
 import { Route as ProjectPProjectIdBrandLookupRouteImport } from './routes/_project/p/$projectId/brand-lookup'
 import { Route as ProjectPProjectIdBacklinksRouteImport } from './routes/_project/p/$projectId/backlinks'
@@ -57,8 +58,10 @@ import { Route as ProjectPProjectIdAuditRouteImport } from './routes/_project/p/
 import { Route as ProjectPProjectIdSettingsIndexRouteImport } from './routes/_project/p/$projectId/settings/index'
 import { Route as ProjectPProjectIdRankTrackingIndexRouteImport } from './routes/_project/p/$projectId/rank-tracking/index'
 import { Route as ProjectPProjectIdAuditIndexRouteImport } from './routes/_project/p/$projectId/audit/index'
+import { Route as ProjectPProjectIdSettingsProfileRouteImport } from './routes/_project/p/$projectId/settings/profile'
 import { Route as ProjectPProjectIdSettingsIntegrationsRouteImport } from './routes/_project/p/$projectId/settings/integrations'
 import { Route as ProjectPProjectIdSettingsContextRouteImport } from './routes/_project/p/$projectId/settings/context'
+import { Route as ProjectPProjectIdSettingsAutomationRouteImport } from './routes/_project/p/$projectId/settings/automation'
 import { Route as ProjectPProjectIdRankTrackingConfigIdRouteImport } from './routes/_project/p/$projectId/rank-tracking/$configId'
 import { Route as ProjectPProjectIdAuditIssuesResultIdRouteImport } from './routes/_project/p/$projectId/audit/issues/$resultId'
 
@@ -272,6 +275,12 @@ const ProjectPProjectIdKeywordsRoute =
     path: '/keywords',
     getParentRoute: () => ProjectPProjectIdRouteRoute,
   } as any)
+const ProjectPProjectIdExecutionRoute =
+  ProjectPProjectIdExecutionRouteImport.update({
+    id: '/execution',
+    path: '/execution',
+    getParentRoute: () => ProjectPProjectIdRouteRoute,
+  } as any)
 const ProjectPProjectIdDomainRoute = ProjectPProjectIdDomainRouteImport.update({
   id: '/domain',
   path: '/domain',
@@ -312,6 +321,12 @@ const ProjectPProjectIdAuditIndexRoute =
     path: '/',
     getParentRoute: () => ProjectPProjectIdAuditRoute,
   } as any)
+const ProjectPProjectIdSettingsProfileRoute =
+  ProjectPProjectIdSettingsProfileRouteImport.update({
+    id: '/profile',
+    path: '/profile',
+    getParentRoute: () => ProjectPProjectIdSettingsRoute,
+  } as any)
 const ProjectPProjectIdSettingsIntegrationsRoute =
   ProjectPProjectIdSettingsIntegrationsRouteImport.update({
     id: '/integrations',
@@ -322,6 +337,12 @@ const ProjectPProjectIdSettingsContextRoute =
   ProjectPProjectIdSettingsContextRouteImport.update({
     id: '/context',
     path: '/context',
+    getParentRoute: () => ProjectPProjectIdSettingsRoute,
+  } as any)
+const ProjectPProjectIdSettingsAutomationRoute =
+  ProjectPProjectIdSettingsAutomationRouteImport.update({
+    id: '/automation',
+    path: '/automation',
     getParentRoute: () => ProjectPProjectIdSettingsRoute,
   } as any)
 const ProjectPProjectIdRankTrackingConfigIdRoute =
@@ -369,6 +390,7 @@ export interface FileRoutesByFullPath {
   '/p/$projectId/backlinks': typeof ProjectPProjectIdBacklinksRoute
   '/p/$projectId/brand-lookup': typeof ProjectPProjectIdBrandLookupRoute
   '/p/$projectId/domain': typeof ProjectPProjectIdDomainRoute
+  '/p/$projectId/execution': typeof ProjectPProjectIdExecutionRoute
   '/p/$projectId/keywords': typeof ProjectPProjectIdKeywordsRoute
   '/p/$projectId/prompt-explorer': typeof ProjectPProjectIdPromptExplorerRoute
   '/p/$projectId/rank-tracking': typeof ProjectPProjectIdRankTrackingRouteWithChildren
@@ -380,8 +402,10 @@ export interface FileRoutesByFullPath {
   '/api/gsc/oauth/callback': typeof ApiGscOauthCallbackRoute
   '/p/$projectId/': typeof ProjectPProjectIdIndexRoute
   '/p/$projectId/rank-tracking/$configId': typeof ProjectPProjectIdRankTrackingConfigIdRoute
+  '/p/$projectId/settings/automation': typeof ProjectPProjectIdSettingsAutomationRoute
   '/p/$projectId/settings/context': typeof ProjectPProjectIdSettingsContextRoute
   '/p/$projectId/settings/integrations': typeof ProjectPProjectIdSettingsIntegrationsRoute
+  '/p/$projectId/settings/profile': typeof ProjectPProjectIdSettingsProfileRoute
   '/p/$projectId/audit/': typeof ProjectPProjectIdAuditIndexRoute
   '/p/$projectId/rank-tracking/': typeof ProjectPProjectIdRankTrackingIndexRoute
   '/p/$projectId/settings/': typeof ProjectPProjectIdSettingsIndexRoute
@@ -416,6 +440,7 @@ export interface FileRoutesByTo {
   '/p/$projectId/backlinks': typeof ProjectPProjectIdBacklinksRoute
   '/p/$projectId/brand-lookup': typeof ProjectPProjectIdBrandLookupRoute
   '/p/$projectId/domain': typeof ProjectPProjectIdDomainRoute
+  '/p/$projectId/execution': typeof ProjectPProjectIdExecutionRoute
   '/p/$projectId/keywords': typeof ProjectPProjectIdKeywordsRoute
   '/p/$projectId/prompt-explorer': typeof ProjectPProjectIdPromptExplorerRoute
   '/p/$projectId/sam': typeof ProjectPProjectIdSamRoute
@@ -425,8 +450,10 @@ export interface FileRoutesByTo {
   '/api/gsc/oauth/callback': typeof ApiGscOauthCallbackRoute
   '/p/$projectId': typeof ProjectPProjectIdIndexRoute
   '/p/$projectId/rank-tracking/$configId': typeof ProjectPProjectIdRankTrackingConfigIdRoute
+  '/p/$projectId/settings/automation': typeof ProjectPProjectIdSettingsAutomationRoute
   '/p/$projectId/settings/context': typeof ProjectPProjectIdSettingsContextRoute
   '/p/$projectId/settings/integrations': typeof ProjectPProjectIdSettingsIntegrationsRoute
+  '/p/$projectId/settings/profile': typeof ProjectPProjectIdSettingsProfileRoute
   '/p/$projectId/audit': typeof ProjectPProjectIdAuditIndexRoute
   '/p/$projectId/rank-tracking': typeof ProjectPProjectIdRankTrackingIndexRoute
   '/p/$projectId/settings': typeof ProjectPProjectIdSettingsIndexRoute
@@ -469,6 +496,7 @@ export interface FileRoutesById {
   '/_project/p/$projectId/backlinks': typeof ProjectPProjectIdBacklinksRoute
   '/_project/p/$projectId/brand-lookup': typeof ProjectPProjectIdBrandLookupRoute
   '/_project/p/$projectId/domain': typeof ProjectPProjectIdDomainRoute
+  '/_project/p/$projectId/execution': typeof ProjectPProjectIdExecutionRoute
   '/_project/p/$projectId/keywords': typeof ProjectPProjectIdKeywordsRoute
   '/_project/p/$projectId/prompt-explorer': typeof ProjectPProjectIdPromptExplorerRoute
   '/_project/p/$projectId/rank-tracking': typeof ProjectPProjectIdRankTrackingRouteWithChildren
@@ -480,8 +508,10 @@ export interface FileRoutesById {
   '/api/gsc/oauth/callback': typeof ApiGscOauthCallbackRoute
   '/_project/p/$projectId/': typeof ProjectPProjectIdIndexRoute
   '/_project/p/$projectId/rank-tracking/$configId': typeof ProjectPProjectIdRankTrackingConfigIdRoute
+  '/_project/p/$projectId/settings/automation': typeof ProjectPProjectIdSettingsAutomationRoute
   '/_project/p/$projectId/settings/context': typeof ProjectPProjectIdSettingsContextRoute
   '/_project/p/$projectId/settings/integrations': typeof ProjectPProjectIdSettingsIntegrationsRoute
+  '/_project/p/$projectId/settings/profile': typeof ProjectPProjectIdSettingsProfileRoute
   '/_project/p/$projectId/audit/': typeof ProjectPProjectIdAuditIndexRoute
   '/_project/p/$projectId/rank-tracking/': typeof ProjectPProjectIdRankTrackingIndexRoute
   '/_project/p/$projectId/settings/': typeof ProjectPProjectIdSettingsIndexRoute
@@ -521,6 +551,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/backlinks'
     | '/p/$projectId/brand-lookup'
     | '/p/$projectId/domain'
+    | '/p/$projectId/execution'
     | '/p/$projectId/keywords'
     | '/p/$projectId/prompt-explorer'
     | '/p/$projectId/rank-tracking'
@@ -532,8 +563,10 @@ export interface FileRouteTypes {
     | '/api/gsc/oauth/callback'
     | '/p/$projectId/'
     | '/p/$projectId/rank-tracking/$configId'
+    | '/p/$projectId/settings/automation'
     | '/p/$projectId/settings/context'
     | '/p/$projectId/settings/integrations'
+    | '/p/$projectId/settings/profile'
     | '/p/$projectId/audit/'
     | '/p/$projectId/rank-tracking/'
     | '/p/$projectId/settings/'
@@ -568,6 +601,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/backlinks'
     | '/p/$projectId/brand-lookup'
     | '/p/$projectId/domain'
+    | '/p/$projectId/execution'
     | '/p/$projectId/keywords'
     | '/p/$projectId/prompt-explorer'
     | '/p/$projectId/sam'
@@ -577,8 +611,10 @@ export interface FileRouteTypes {
     | '/api/gsc/oauth/callback'
     | '/p/$projectId'
     | '/p/$projectId/rank-tracking/$configId'
+    | '/p/$projectId/settings/automation'
     | '/p/$projectId/settings/context'
     | '/p/$projectId/settings/integrations'
+    | '/p/$projectId/settings/profile'
     | '/p/$projectId/audit'
     | '/p/$projectId/rank-tracking'
     | '/p/$projectId/settings'
@@ -620,6 +656,7 @@ export interface FileRouteTypes {
     | '/_project/p/$projectId/backlinks'
     | '/_project/p/$projectId/brand-lookup'
     | '/_project/p/$projectId/domain'
+    | '/_project/p/$projectId/execution'
     | '/_project/p/$projectId/keywords'
     | '/_project/p/$projectId/prompt-explorer'
     | '/_project/p/$projectId/rank-tracking'
@@ -631,8 +668,10 @@ export interface FileRouteTypes {
     | '/api/gsc/oauth/callback'
     | '/_project/p/$projectId/'
     | '/_project/p/$projectId/rank-tracking/$configId'
+    | '/_project/p/$projectId/settings/automation'
     | '/_project/p/$projectId/settings/context'
     | '/_project/p/$projectId/settings/integrations'
+    | '/_project/p/$projectId/settings/profile'
     | '/_project/p/$projectId/audit/'
     | '/_project/p/$projectId/rank-tracking/'
     | '/_project/p/$projectId/settings/'
@@ -946,6 +985,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectPProjectIdKeywordsRouteImport
       parentRoute: typeof ProjectPProjectIdRouteRoute
     }
+    '/_project/p/$projectId/execution': {
+      id: '/_project/p/$projectId/execution'
+      path: '/execution'
+      fullPath: '/p/$projectId/execution'
+      preLoaderRoute: typeof ProjectPProjectIdExecutionRouteImport
+      parentRoute: typeof ProjectPProjectIdRouteRoute
+    }
     '/_project/p/$projectId/domain': {
       id: '/_project/p/$projectId/domain'
       path: '/domain'
@@ -995,6 +1041,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectPProjectIdAuditIndexRouteImport
       parentRoute: typeof ProjectPProjectIdAuditRoute
     }
+    '/_project/p/$projectId/settings/profile': {
+      id: '/_project/p/$projectId/settings/profile'
+      path: '/profile'
+      fullPath: '/p/$projectId/settings/profile'
+      preLoaderRoute: typeof ProjectPProjectIdSettingsProfileRouteImport
+      parentRoute: typeof ProjectPProjectIdSettingsRoute
+    }
     '/_project/p/$projectId/settings/integrations': {
       id: '/_project/p/$projectId/settings/integrations'
       path: '/integrations'
@@ -1007,6 +1060,13 @@ declare module '@tanstack/react-router' {
       path: '/context'
       fullPath: '/p/$projectId/settings/context'
       preLoaderRoute: typeof ProjectPProjectIdSettingsContextRouteImport
+      parentRoute: typeof ProjectPProjectIdSettingsRoute
+    }
+    '/_project/p/$projectId/settings/automation': {
+      id: '/_project/p/$projectId/settings/automation'
+      path: '/automation'
+      fullPath: '/p/$projectId/settings/automation'
+      preLoaderRoute: typeof ProjectPProjectIdSettingsAutomationRouteImport
       parentRoute: typeof ProjectPProjectIdSettingsRoute
     }
     '/_project/p/$projectId/rank-tracking/$configId': {
@@ -1104,17 +1164,23 @@ const ProjectPProjectIdRankTrackingRouteWithChildren =
   )
 
 interface ProjectPProjectIdSettingsRouteChildren {
+  ProjectPProjectIdSettingsAutomationRoute: typeof ProjectPProjectIdSettingsAutomationRoute
   ProjectPProjectIdSettingsContextRoute: typeof ProjectPProjectIdSettingsContextRoute
   ProjectPProjectIdSettingsIntegrationsRoute: typeof ProjectPProjectIdSettingsIntegrationsRoute
+  ProjectPProjectIdSettingsProfileRoute: typeof ProjectPProjectIdSettingsProfileRoute
   ProjectPProjectIdSettingsIndexRoute: typeof ProjectPProjectIdSettingsIndexRoute
 }
 
 const ProjectPProjectIdSettingsRouteChildren: ProjectPProjectIdSettingsRouteChildren =
   {
+    ProjectPProjectIdSettingsAutomationRoute:
+      ProjectPProjectIdSettingsAutomationRoute,
     ProjectPProjectIdSettingsContextRoute:
       ProjectPProjectIdSettingsContextRoute,
     ProjectPProjectIdSettingsIntegrationsRoute:
       ProjectPProjectIdSettingsIntegrationsRoute,
+    ProjectPProjectIdSettingsProfileRoute:
+      ProjectPProjectIdSettingsProfileRoute,
     ProjectPProjectIdSettingsIndexRoute: ProjectPProjectIdSettingsIndexRoute,
   }
 
@@ -1128,6 +1194,7 @@ interface ProjectPProjectIdRouteRouteChildren {
   ProjectPProjectIdBacklinksRoute: typeof ProjectPProjectIdBacklinksRoute
   ProjectPProjectIdBrandLookupRoute: typeof ProjectPProjectIdBrandLookupRoute
   ProjectPProjectIdDomainRoute: typeof ProjectPProjectIdDomainRoute
+  ProjectPProjectIdExecutionRoute: typeof ProjectPProjectIdExecutionRoute
   ProjectPProjectIdKeywordsRoute: typeof ProjectPProjectIdKeywordsRoute
   ProjectPProjectIdPromptExplorerRoute: typeof ProjectPProjectIdPromptExplorerRoute
   ProjectPProjectIdRankTrackingRoute: typeof ProjectPProjectIdRankTrackingRouteWithChildren
@@ -1144,6 +1211,7 @@ const ProjectPProjectIdRouteRouteChildren: ProjectPProjectIdRouteRouteChildren =
     ProjectPProjectIdBacklinksRoute: ProjectPProjectIdBacklinksRoute,
     ProjectPProjectIdBrandLookupRoute: ProjectPProjectIdBrandLookupRoute,
     ProjectPProjectIdDomainRoute: ProjectPProjectIdDomainRoute,
+    ProjectPProjectIdExecutionRoute: ProjectPProjectIdExecutionRoute,
     ProjectPProjectIdKeywordsRoute: ProjectPProjectIdKeywordsRoute,
     ProjectPProjectIdPromptExplorerRoute: ProjectPProjectIdPromptExplorerRoute,
     ProjectPProjectIdRankTrackingRoute:

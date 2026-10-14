@@ -1,3 +1,4 @@
+import { getSeoWorkPlanTool } from "@/server/mcp/tools/seo-work-plan";
 import {
   type CallToolResult,
   McpServer,
@@ -161,6 +162,7 @@ export function createOpenSeoMcpServer(authProps: McpProps) {
   register(listProjectsTool);
   register(createProjectTool);
   register(getProjectContextTool);
+  register(getSeoWorkPlanTool);
   register(updateProjectContextTool);
   register(listSavedKeywordsTool);
   register(researchKeywordsTool);

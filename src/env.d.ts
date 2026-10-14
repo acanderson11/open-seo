@@ -4,6 +4,7 @@
 declare namespace Cloudflare {
   interface Env {
     R2: R2Bucket;
+    IMAGES: ImagesBinding;
     OAUTH_KV: KVNamespace;
 
     // Durable Object backing the onboarding strategy chat (see wrangler.jsonc).
@@ -62,6 +63,7 @@ declare namespace Cloudflare {
     OPENROUTER_API_KEY?: string;
     // Optional OpenRouter model slug override (defaults in openrouter.ts).
     OPENROUTER_MODEL?: string;
+    OPENROUTER_IMAGE_MODEL?: string;
   }
 }
 

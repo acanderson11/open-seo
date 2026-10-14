@@ -50,6 +50,35 @@ describe("normalizeAndValidateStartUrl", () => {
       code: "VALIDATION_ERROR",
     } satisfies Partial<AppError>);
   });
+
+  it.each([
+    "https//andmktg.com",
+    "https:/andmktg.com",
+    "https://https//andmktg.com",
+    "https://http://andmktg.com",
+    "ftp://andmktg.com",
+  ])(
+    "rejects malformed scheme %s before DNS or audit creation",
+    async (input) => {
+      let error: unknown;
+      try {
+        await normalizeAndValidateStartUrl(input);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({ code: "VALIDATION_ERROR" });
+      if (error instanceof Error)
+        expect(error.message).toContain("website address");
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts a complete case-insensitive HTTPS scheme", async () => {
+    vi.mocked(fetch).mockResolvedValue(dnsOk());
+    await expect(
+      normalizeAndValidateStartUrl("HTTPS://andmktg.com/"),
+    ).resolves.toBe("https://andmktg.com/");
+  });
 });
 
 const dnsOk = () =>

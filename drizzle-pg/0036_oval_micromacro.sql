@@ -1,0 +1,1 @@
+ALTER TABLE "project_image_preferences" ADD COLUMN "auto_generate" integer DEFAULT 0 NOT NULL;

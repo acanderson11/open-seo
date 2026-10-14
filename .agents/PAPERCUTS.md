@@ -36,3 +36,21 @@ the crawler's same-origin filter drops. Run it as
 `vite build`). Also: `pnpm --filter badseo audit` fails with
 "Unknown option: 'recursive'" from the repo root — badseo is its own pnpm
 workspace, not a root workspace member; use `npx tsx badseo/scripts/run-audit.ts`.
+
+## Querying selfhost production D1: local wrangler.jsonc points at a different database
+
+`wrangler.jsonc` binds `DB` to a non-production `database_id`, so
+`wrangler d1 execute open-seo --remote` from the repo does not hit the selfhost
+database (Alchemy provisions that one). For read-only checks, use a throwaway
+config outside the repo that names the production `database_id`, and run the
+repo's `node_modules/.bin/wrangler` directly. `pnpm --dir <repo> exec` run from
+another directory resolves a corepack pnpm version that isn't installed and
+crashes with MODULE_NOT_FOUND.
+
+## `samSkills.test.ts` fails on Windows checkouts with CRLF skill files
+
+With `core.autocrlf=true`, `.agents/skills/*/SKILL.md` are checked out with CRLF
+line endings, and `buildSamSkillSource` throws "Skill has no frontmatter" because
+its frontmatter regex expects `\n`. The code is fine; the line endings are the
+problem. Normalize them (`.gitattributes` `eol=lf` for skills) or run the suite
+under WSL.

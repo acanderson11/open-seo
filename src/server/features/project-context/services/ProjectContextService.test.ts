@@ -1,3 +1,4 @@
+import { agencyProfileUpdates } from "@/types/schemas/agencyProfile";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyContextUpdates,
@@ -55,6 +56,40 @@ describe("project context service", () => {
     mocks.listResearchLog.mockResolvedValue([]);
   });
 
+  it("saves agency fields into the agent digest without replacing other context", async () => {
+    const existing = section("business_overview", "We sell paint.");
+    mocks.listSections
+      .mockResolvedValueOnce([existing])
+      .mockResolvedValue([
+        existing,
+        section(
+          "custom:agency-voice",
+          "Plain, specific language.",
+          "Brand voice",
+        ),
+      ]);
+
+    const saved = await applyContextUpdates(
+      "project_1",
+      agencyProfileUpdates({ voice: "Plain, specific language." }),
+      "user",
+    );
+
+    expect(mocks.upsertSection).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      {
+        projectId: "project_1",
+        key: "custom:agency-voice",
+        title: "Brand voice",
+        content: "Plain, specific language.",
+        updatedBy: "user",
+      },
+    );
+    expect(mocks.deleteSection).not.toHaveBeenCalled();
+    const digest = renderProjectContextMarkdown(saved);
+    expect(digest).toContain("We sell paint.");
+    expect(digest).toContain("## Brand voice\n\nPlain, specific language.");
+  });
   it("splits typed from custom sections and reports the empty typed ones", async () => {
     mocks.listSections.mockResolvedValue([
       section("business_overview", "We sell paint."),
@@ -73,6 +108,7 @@ describe("project context service", () => {
       "current_goal",
       "positioning",
       "writing_preferences",
+      "target_topics",
     ]);
     expect(context.customSections).toEqual([
       expect.objectContaining({ slug: "launch-plan", title: "Launch plan" }),

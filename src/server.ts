@@ -1,3 +1,9 @@
+import { scheduleAutopilot } from "@/server/features/automation/AutopilotService";
+import { runScheduledArticleFollowUps } from "@/server/features/automation/ArticleFollowUpService";
+import { publishApprovedDraft } from "@/server/features/automation/WordpressPublication";
+import { AutopilotRepository as autopilotRepo } from "@/server/features/automation/AutopilotRepository";
+import { handlePrivateReview } from "@/server/features/automation/privateReview";
+import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import {
   createStartHandler,
   defaultStreamHandler,
@@ -134,7 +140,15 @@ function fetch(
 ): Promise<Response> {
   // Scope a per-request Postgres client (no-op in D1 mode). The client isn't
   // closed here — the Workers↔Hyperdrive socket is reclaimed at invocation end.
-  return withPgClient(() => Promise.resolve(handleFetch(request, env, ctx)));
+  return withPgClient(async () => {
+    const reviewOrigin = await getOptionalEnvValue("AGENCY_REVIEW_ORIGIN");
+    if (
+      reviewOrigin &&
+      new URL(request.url).origin === new URL(reviewOrigin).origin
+    )
+      return handlePrivateReview(request);
+    return handleFetch(request, env, ctx);
+  });
 }
 
 function handleFetch(
@@ -181,6 +195,7 @@ function handleFetch(
 // Export Workflow classes as named exports. SiteAuditWorkflow and the
 // AuditScratchpad DO live in the open-seo-audit aux worker
 // (src/audit-worker.ts); this worker reaches them via cross-script bindings.
+export { ContentAutopilotWorkflow } from "./server/workflows/ContentAutopilotWorkflow";
 export { RankCheckWorkflow } from "./server/workflows/RankCheckWorkflow";
 // Durable Object class for the onboarding strategy chat (Agents SDK).
 export { OnboardingChatAgent } from "./server/features/onboarding/OnboardingChatAgent";
@@ -234,7 +249,38 @@ export default {
       console.error("[cron] Stale-audit reconcile failed:", err);
     }
     // Scope a per-request Postgres client for the cron run (no-op in D1 mode).
-    await withPgClient(() => runScheduledRankChecks(env));
+    let publicationError: unknown;
+    try {
+      await withPgClient(async () => {
+        try {
+          await scheduleAutopilot(env);
+        } catch {
+          console.error("[autopilot] Scheduler interrupted");
+        }
+        for (const job of await autopilotRepo.pendingPublication())
+          await publishApprovedDraft(job.projectId, job.id);
+      });
+    } catch (err) {
+      publicationError = err;
+      console.error("[cron] Publication sweep failed:", err);
+    }
+    let rankError: unknown;
+    try {
+      await withPgClient(() => runScheduledRankChecks(env));
+    } catch (err) {
+      rankError = err;
+      console.error("[cron] Scheduled rank checks failed:", err);
+    }
+    let followUpError: unknown;
+    try {
+      await withPgClient(() => runScheduledArticleFollowUps());
+    } catch (err) {
+      followUpError = err;
+      console.error("[cron] Article follow-ups failed:", err);
+    }
     if (watchdogError) throw watchdogError;
+    if (publicationError) throw publicationError;
+    if (rankError) throw rankError;
+    if (followUpError) throw followUpError;
   },
 };

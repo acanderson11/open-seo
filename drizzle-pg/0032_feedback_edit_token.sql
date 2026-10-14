@@ -1,0 +1,1 @@
+ALTER TABLE "article_feedback" ADD COLUMN "edit_token" text;

@@ -8,7 +8,9 @@ export const Route = createFileRoute("/_project/p/$projectId/settings")({
 });
 
 const tabs = [
+  { to: "/p/$projectId/settings/automation" as const, label: "Execution" },
   { to: "/p/$projectId/settings" as const, label: "General", exact: true },
+  { to: "/p/$projectId/settings/profile" as const, label: "Reporting" },
   { to: "/p/$projectId/settings/context" as const, label: "Context" },
   { to: "/p/$projectId/settings/integrations" as const, label: "Integrations" },
 ];

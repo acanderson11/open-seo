@@ -1,6 +1,8 @@
+import { z } from "zod";
+import { makeToolContext } from "@/server/mcp/tools/tool-test-support";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Tool } from "ai";
-import { waitingAuditStatusTool } from "./samChatTools";
+import { buildSamMcpTools, waitingAuditStatusTool } from "./samChatTools";
 
 vi.mock("cloudflare:workers", () => ({
   env: {},
@@ -57,4 +59,32 @@ describe("waitingAuditStatusTool", () => {
     });
     expect(execute).toHaveBeenCalledTimes(3);
   });
+});
+
+const planHandler = vi.hoisted(() =>
+  vi.fn(async () => ({ content: [{ type: "text", text: "Scoped evidence" }] })),
+);
+vi.mock("@/server/mcp/tools/seo-work-plan", () => ({
+  getSeoWorkPlanTool: {
+    name: "get_seo_work_plan",
+    config: {
+      description: "Test",
+      inputSchema: { projectId: z.string(), pageOffset: z.number().default(0) },
+    },
+    handler: planHandler,
+  },
+}));
+it("binds SAM work-plan reads to its session project even if the model supplies a foreign ID", async () => {
+  const tools = buildSamMcpTools(makeToolContext().auth, {
+    id: "session-project",
+    domain: "example.com",
+  });
+  await tools.get_seo_work_plan.execute?.(
+    { projectId: "foreign-project", pageOffset: 20 },
+    callOptions,
+  );
+  expect(planHandler).toHaveBeenCalledWith(
+    { projectId: "session-project", pageOffset: 20 },
+    expect.anything(),
+  );
 });

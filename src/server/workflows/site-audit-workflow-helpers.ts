@@ -5,7 +5,7 @@ import type {
 import { sha256Hex } from "@/server/lib/audit/ids";
 import { normalizeUrl } from "@/server/lib/audit/url-utils";
 
-const CRAWL_USER_AGENT = "OpenSEO-Audit/1.0";
+import { SITE_USER_AGENT } from "@/shared/site-user-agent";
 const MAX_HTML_BYTES = 1024 * 1024;
 
 /**
@@ -27,6 +27,14 @@ function classifyFetch(
 ): PageFetchClass {
   if (statusCode === 0) return "error";
   if (headers.get("cf-mitigated")) return "blocked";
+  if (
+    headers.get("sg-captcha") === "challenge" ||
+    /\/\.well-known\/sgcaptcha\//i.test(bodySnippet)
+  )
+    return "blocked";
+  // Accepted/partial responses are not complete representations to audit.
+  if (statusCode === 202 || statusCode === 204 || statusCode === 206)
+    return "error";
   if (statusCode === 401 || statusCode === 403 || statusCode === 429) {
     return "blocked";
   }
@@ -37,6 +45,41 @@ function classifyFetch(
     }
   }
   return "ok";
+}
+
+function logBlockedFetch(
+  url: string,
+  status: number,
+  fetchClass: PageFetchClass,
+  headers: Headers,
+  bodySnippet: string,
+) {
+  let path: string;
+  try {
+    const parsed = new URL(url);
+    path = `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    path = "invalid-url";
+  }
+  console.warn({
+    event: "audit-fetch-blocked",
+    url: path,
+    userAgent: SITE_USER_AGENT,
+    status,
+    fetchClass,
+    responseHeaders: {
+      sgCaptcha: headers.get("sg-captcha"),
+      cfMitigated: headers.get("cf-mitigated"),
+      cfRay: headers.get("cf-ray"),
+      server: headers.get("server"),
+      cfCacheStatus: headers.get("cf-cache-status"),
+    },
+    siteGroundBodyMarker: /\/\.well-known\/sgcaptcha\//i.test(bodySnippet),
+    cloudflareBodyMarker:
+      /cf-chl-|challenge-platform|cf-browser-verification|just a moment|attention required! \| cloudflare|verifying you are human/i.test(
+        bodySnippet,
+      ),
+  });
 }
 
 /** Parse `Link: <url>; rel="canonical"` response headers. */
@@ -71,7 +114,7 @@ export async function crawlPage(
     // to its canonical target instead of cycling back to its own source.
     const response = await fetch(url, {
       headers: {
-        "User-Agent": CRAWL_USER_AGENT,
+        "User-Agent": SITE_USER_AGENT,
         Accept: "text/html,application/xhtml+xml",
       },
       redirect: "manual",
@@ -112,6 +155,14 @@ export async function crawlPage(
       response.headers,
       body.slice(0, 4_000),
     );
+    if (fetchClass === "blocked" || statusCode === 202)
+      logBlockedFetch(
+        url,
+        statusCode,
+        fetchClass,
+        response.headers,
+        body.slice(0, 4_000),
+      );
 
     if (!isHtml || fetchClass !== "ok" || statusCode >= 400) {
       return emptyPageResult({

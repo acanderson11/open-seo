@@ -17,24 +17,15 @@ import {
   shouldValidateFieldOnChange,
 } from "@/client/lib/forms";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
+import { getSiteUrlSyntaxError } from "@/shared/site-url-input";
 
 function getLaunchValidationErrors(
   value: LaunchFormValues,
   shouldValidateUntouchedField: boolean,
 ) {
-  if (value.url.trim()) {
-    return null;
-  }
-
-  if (!shouldValidateUntouchedField) {
-    return null;
-  }
-
-  return createFormValidationErrors({
-    fields: {
-      url: "Please enter a URL.",
-    },
-  });
+  if (!shouldValidateUntouchedField && !value.url.trim()) return null;
+  const error = getSiteUrlSyntaxError(value.url);
+  return error ? createFormValidationErrors({ fields: { url: error } }) : null;
 }
 
 export function useLaunchController({

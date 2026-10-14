@@ -10,3 +10,10 @@ export * from "../billing.schema";
 export * from "../ga4.schema";
 export * from "../gsc.schema";
 export * from "../telemetry.schema";
+
+export * from "../automation.schema";
+
+export * from "../inventory.schema";
+
+export * from "../brief.schema";
+export * from "../image.schema";

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Copy, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -356,6 +357,19 @@ export function StrikingDistanceTable({
         onClear={() => setRowSelection({})}
         actions={
           <div className="flex items-center gap-1 px-1.5">
+            {table.getSelectedRowModel().rows.length === 1 && (
+              <Link
+                className="btn btn-ghost btn-xs"
+                to="/p/$projectId/execution"
+                params={{ projectId }}
+                search={{
+                  topic: table.getSelectedRowModel().rows[0]!.original.query,
+                  targetUrl: table.getSelectedRowModel().rows[0]!.original.page,
+                }}
+              >
+                Create content draft
+              </Link>
+            )}
             <TableBulkActionButton
               icon={<Copy className="size-3.5" />}
               onClick={() => void copyKeywords()}

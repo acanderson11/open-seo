@@ -1,0 +1,1 @@
+ALTER TABLE "automation_policies" ADD COLUMN "delivery" text DEFAULT 'manual' NOT NULL;
