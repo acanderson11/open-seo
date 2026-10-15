@@ -1,20 +1,21 @@
 import { z } from "zod";
+export const plannerSelection = z.union([
+  z.object({
+    action: z.literal("skip"),
+    reason: z.string().min(1).max(3000),
+  }),
+  z.object({
+    action: z.literal("draft"),
+    topic: z.string().trim().min(3).max(500),
+    rationale: z.string().min(1).max(3000),
+    evidenceIds: z.array(z.string()).min(1).max(10),
+    sourceUrls: z.array(z.string().url()).min(1).max(5),
+  }),
+]);
 export const plannerResult = z.object({
   projectId: z.string(),
   contextVersion: z.string(),
-  selection: z.union([
-    z.object({
-      action: z.literal("skip"),
-      reason: z.string().min(1).max(3000),
-    }),
-    z.object({
-      action: z.literal("draft"),
-      topic: z.string().trim().min(3).max(500),
-      rationale: z.string().min(1).max(3000),
-      evidenceIds: z.array(z.string()).min(1).max(10),
-      sourceUrls: z.array(z.string().url()).min(1).max(5),
-    }),
-  ]),
+  selection: plannerSelection,
 });
 export function dueForDraft(target: number, completed: number, now: Date) {
   const days = new Date(

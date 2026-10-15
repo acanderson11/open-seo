@@ -64,6 +64,8 @@ declare namespace Cloudflare {
     // Optional OpenRouter model slug override (defaults in openrouter.ts).
     OPENROUTER_MODEL?: string;
     OPENROUTER_IMAGE_MODEL?: string;
+    OPENROUTER_CONTENT_MODEL?: string;
+    AGENCY_CONTENT_ENGINE?: string;
   }
 }
 

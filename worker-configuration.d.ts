@@ -7,6 +7,7 @@ declare namespace Cloudflare {
 	}
 	interface Env {
 	CONTENT_AUTOPILOT_WORKFLOW: Workflow<Parameters<import("./src/server").ContentAutopilotWorkflow['run']>[0]['payload']>;
+	ARTICLE_GENERATION_WORKFLOW: Workflow<Parameters<import("./src/server").ArticleGenerationWorkflow['run']>[0]['payload']>;
 		KV: KVNamespace;
 		R2: R2Bucket;
 		DB: D1Database;

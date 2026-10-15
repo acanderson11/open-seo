@@ -68,3 +68,18 @@ export function buildChatAgentModel(
     extraBody: { reasoning: { effort: "max" } },
   });
 }
+
+/**
+ * Model for agency article drafting, review, and topic planning. There is no
+ * default: the content model affects article quality and cost, so it is chosen
+ * explicitly with OPENROUTER_CONTENT_MODEL. Returns null when unset.
+ */
+export async function getContentModel() {
+  const modelId = await getOptionalEnvValue("OPENROUTER_CONTENT_MODEL");
+  if (!modelId) return null;
+  const apiKey = await getRequiredEnvValue("OPENROUTER_API_KEY");
+  return {
+    modelId,
+    model: createOpenRouter({ apiKey })(modelId, { usage: { include: true } }),
+  };
+}

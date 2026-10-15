@@ -1,3 +1,10 @@
+vi.mock("./ArticleGenerationStart", () => ({
+  contentEngine: async () => "n8n",
+  startGeneration: vi.fn(),
+  generationInstanceId: (jobId: string, version: number) =>
+    `${jobId}-v${version}`,
+}));
+vi.mock("./ArticleGenerationService", () => ({ generateStage: vi.fn() }));
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
 vi.mock("./ContentLearningRepository", () => ({
   ContentLearningRepository: {},

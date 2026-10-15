@@ -10,7 +10,6 @@ import {
   collectPlanningInput,
   selectOpportunity,
   producePlannedDraft,
-  notifyPlannedDraft,
 } from "@/server/features/automation/AutopilotService";
 const once = {
   retries: { limit: 0, delay: "1 second" as const },
@@ -52,9 +51,6 @@ export class ContentAutopilotWorkflow extends WorkflowEntrypoint<
               event.payload.revisionVersion!,
             ),
         );
-        await pgStep(step, "Deliver revised article", once, () =>
-          notifyPlannedDraft(job),
-        );
         await pgStep(step, "Finish revision run", once, () =>
           auto.finishRun(
             runId,
@@ -76,14 +72,10 @@ export class ContentAutopilotWorkflow extends WorkflowEntrypoint<
         once,
         () => selectOpportunity(input),
       );
-      const job = await pgStep(
-        step,
-        "Produce and persist reviewed article",
-        once,
-        () => producePlannedDraft(runId, input, choice),
-      );
-      await pgStep(step, "Deliver approval request", once, () =>
-        notifyPlannedDraft(job),
+      // On the in-app engine this starts the article's generation Workflow,
+      // which emails the reviewer when the version is ready.
+      await pgStep(step, "Start the selected article", once, () =>
+        producePlannedDraft(runId, input, choice),
       );
     } catch (error) {
       console.error("autopilot.workflow failed:", error, { runId, projectId });

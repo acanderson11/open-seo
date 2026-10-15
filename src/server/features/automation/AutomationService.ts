@@ -8,9 +8,13 @@ import { readPages } from "@/server/lib/scrape";
 import { AppError } from "@/server/lib/errors";
 import { prepareFeaturedImage } from "./FeaturedImageService";
 import { executionHookRequest, executionSecret } from "./n8nExecution";
-import { requestClientReview } from "./DraftReviewService";
+import { requestReview } from "./DraftReviewService";
+import { contentEngine, startGeneration } from "./ArticleGenerationStart";
+import type { GenerationJob, PlannedDraft } from "./ArticleGenerationInput";
 import {
   renderArticle,
+  type ArticleDraft,
+  type ArticleReview,
   type draftRequestSchema,
 } from "@/types/schemas/automation";
 export async function contextSnapshot(projectId: string) {
@@ -65,22 +69,6 @@ export function validateTarget(target: string, domain: string) {
     throw new AppError("VALIDATION_ERROR");
   return url.href;
 }
-type PlannedDraft = {
-  rationale: string;
-  sourceUrls: string[];
-  kind?: "new_content" | "refresh_content";
-  savedBrief?: {
-    brief: {
-      title: string;
-      angle: string;
-      outline: string[];
-      claims: { statement: string; sourceId: string; evidence: string }[];
-    };
-    sources: { id: string; url: string; text: string }[];
-    contextVersion: string;
-    guidance: string;
-  };
-};
 export async function startDraft(
   projectId: string,
   domain: string,
@@ -95,7 +83,8 @@ export async function startDraft(
       throw new AppError("CONFLICT");
     return existing;
   }
-  await executionSecret();
+  const engine = await contentEngine();
+  if (engine === "n8n") await executionSecret();
   const policy = await repo.policy(projectId);
   if (!policy?.enabled) throw new AppError("FORBIDDEN");
   const snapshot = await contextSnapshot(projectId);
@@ -134,25 +123,79 @@ export async function startDraft(
     });
     return repo.job(projectId, id);
   }
-  await runReservedDraft({
-    projectId,
-    domain,
-    input,
-    planned,
-    policy,
-    snapshot,
-    id,
-    targetUrl,
-  });
+  if (engine === "app")
+    await startGeneration({
+      projectId,
+      jobId: id,
+      version: 1,
+      domain,
+      topic: input.topic,
+      targetUrl,
+      planned,
+    });
+  else await runN8nDraft({ projectId, domain, input, planned, id, targetUrl });
   return repo.job(projectId, id);
 }
-async function runReservedDraft({
+
+/** Collects the sources and Context for a new draft. Runs before any paid model call. */
+export async function buildDraftJob(draft: {
+  projectId: string;
+  jobId: string;
+  requestKey: string;
+  topic: string;
+  domain: string;
+  targetUrl: string;
+  planned: PlannedDraft | undefined;
+}): Promise<GenerationJob> {
+  const { projectId, jobId, planned } = draft;
+  const policy = await repo.policy(projectId);
+  if (!policy?.enabled) throw new AppError("CONFLICT");
+  const snapshot = await contextSnapshot(projectId);
+  const source = await draftSources(planned, draft.domain, draft.targetUrl);
+  if (!source.pages.length) throw new AppError("UPSTREAM_UNAVAILABLE");
+  const externalSources = await researchArticle(
+    projectId,
+    jobId,
+    1,
+    draft.topic,
+  );
+  await repo.update(projectId, jobId, {
+    contextVersion: snapshot.version,
+    policyVersion: policy.version,
+  });
+  return {
+    contextVersion: snapshot.version,
+    policyVersion: policy.version,
+    context:
+      snapshot.rendered +
+      "\n\n" +
+      RESEARCH_GUIDANCE +
+      (planned?.savedBrief
+        ? "\n\n## Saved brief guidance (not factual evidence)\n" +
+          planned.savedBrief.guidance
+        : ""),
+    ...(planned?.savedBrief ? { savedBrief: planned.savedBrief.brief } : {}),
+    opportunity: draftOpportunity(draft),
+    sources: [
+      ...(
+        planned?.savedBrief?.sources ??
+        source.pages.map((page, index) => ({
+          id: `page-${index + 1}`,
+          url: page.url,
+          text: page.text,
+        }))
+      ).slice(0, 8),
+      ...externalSources,
+    ],
+  };
+}
+
+/** The n8n engine: one blocking webhook call that runs every stage remotely. */
+async function runN8nDraft({
   projectId,
   domain,
   input,
   planned,
-  policy,
-  snapshot,
   id,
   targetUrl,
 }: {
@@ -160,38 +203,25 @@ async function runReservedDraft({
   domain: string;
   input: z.infer<typeof draftRequestSchema>;
   planned: PlannedDraft | undefined;
-  policy: NonNullable<Awaited<ReturnType<typeof repo.policy>>>;
-  snapshot: Awaited<ReturnType<typeof contextSnapshot>>;
   id: string;
   targetUrl: string;
 }) {
   let dispatched = false;
   try {
     await repo.update(projectId, id, { state: "preparing", message: null });
-    const source = await draftSources(planned, domain, targetUrl);
-    if (!source.pages.length) throw new AppError("UPSTREAM_UNAVAILABLE");
-    const externalSources = await researchArticle(
+    const job = await buildDraftJob({
       projectId,
-      id,
-      1,
-      input.topic,
-    );
-    if (!(await repo.policy(projectId))?.enabled)
-      throw new AppError("CONFLICT");
-    const job = {
+      jobId: id,
+      requestKey: input.requestKey,
+      topic: input.topic,
+      domain,
+      targetUrl,
+      planned,
+    });
+    const request = await executionHookRequest("openseo-content-job", {
+      ...job,
       jobId: id,
       projectId,
-      contextVersion: snapshot.version,
-      policyVersion: policy.version,
-      context:
-        snapshot.rendered +
-        "\n\n" +
-        RESEARCH_GUIDANCE +
-        (planned?.savedBrief
-          ? "\n\n## Saved brief guidance (not factual evidence)\n" +
-            planned.savedBrief.guidance
-          : ""),
-      ...(planned?.savedBrief ? { savedBrief: planned.savedBrief.brief } : {}),
       feedback: [],
       lease: {
         jobId: id,
@@ -203,67 +233,85 @@ async function runReservedDraft({
         enabled: true,
         paused: false,
         contentAllowed: true,
-        approval: policy.approval,
+        approval: (await repo.policy(projectId))?.approval,
         publication: "manual",
       },
-      opportunity: draftOpportunity(input, planned, targetUrl),
-      sources: [
-        ...(
-          planned?.savedBrief?.sources ??
-          source.pages.map((page, index) => ({
-            id: `page-${index + 1}`,
-            url: page.url,
-            text: page.text,
-          }))
-        ).slice(0, 8),
-        ...externalSources,
-      ],
-    };
-    const request = await executionHookRequest("openseo-content-job", job);
+    });
     await repo.update(projectId, id, { state: "running" });
     dispatched = true;
     const result = await boundedResult(await fetch(request));
     if (
       result.jobId !== id ||
       result.projectId !== projectId ||
-      result.contextVersion !== snapshot.version ||
-      result.policyVersion !== policy.version
+      result.contextVersion !== job.contextVersion ||
+      result.policyVersion !== job.policyVersion
     )
       throw new AppError("CONFLICT");
-    const passed =
-      result.review.pass &&
-      !result.review.issues.some((issue) => issue.severity === "blocking");
-    await repo.update(projectId, id, {
-      state: passed ? "awaiting_approval" : "needs_revision",
-      title: result.draft.title,
-      metaDescription: result.draft.metaDescription,
-      bodyHtml: renderArticle(result.draft),
-      message: null,
-      review: result.review.issues
-        .map((issue) => `${issue.severity}: ${issue.reason}`)
-        .join("\n"),
-      qualityPassed: passed ? 1 : 0,
-      n8nExecutionId: result.n8nExecutionId,
-      completedAt: new Date().toISOString(),
+    await saveDraft(projectId, id, {
+      draft: result.draft,
+      review: result.review,
+      executionId: result.n8nExecutionId,
     });
-    await prepareDraftImage(projectId, id);
-    await repo.releaseSlot(projectId, id);
-    if (passed) await requestClientReview(projectId, id);
   } catch (error) {
     console.error("automation.draft failed:", error, {
       projectId,
       jobId: id,
       dispatched,
     });
-    await repo.update(projectId, id, {
-      state: dispatched ? "outcome_unknown" : "failed",
-      message: dispatched
-        ? "The remote outcome could not be verified. Inspect n8n before any retry; this project's slot remains reserved."
-        : "Preparation failed before dispatch. Check Context and the source page.",
-    });
-    if (!dispatched) await repo.releaseSlot(projectId, id);
+    if (dispatched)
+      await repo.update(projectId, id, {
+        state: "outcome_unknown",
+        message:
+          "The remote outcome could not be verified. Inspect n8n before any retry; this project's slot remains reserved.",
+      });
+    else
+      await failDraft(
+        projectId,
+        id,
+        "Preparation failed before dispatch. Check Context and the source page.",
+      );
   }
 }
+
+/** Stores a generated first draft, adds its image, frees the slot, and requests review. */
+export async function saveDraft(
+  projectId: string,
+  id: string,
+  result: { draft: ArticleDraft; review: ArticleReview; executionId: string },
+) {
+  const { draft, review } = result;
+  const passed =
+    review.pass &&
+    !review.issues.some((issue) => issue.severity === "blocking");
+  await repo.update(projectId, id, {
+    state: passed ? "awaiting_approval" : "needs_revision",
+    title: draft.title,
+    metaDescription: draft.metaDescription,
+    bodyHtml: renderArticle(draft),
+    message: null,
+    review: review.issues
+      .map((issue) => `${issue.severity}: ${issue.reason}`)
+      .join("\n"),
+    qualityPassed: passed ? 1 : 0,
+    n8nExecutionId: result.executionId,
+    completedAt: new Date().toISOString(),
+  });
+  await prepareDraftImage(projectId, id);
+  await repo.releaseSlot(projectId, id);
+  if (passed) await requestReview(projectId, id);
+}
+
+/** Marks a first draft failed and frees the project's slot. */
+export async function failDraft(
+  projectId: string,
+  id: string,
+  message: string,
+  refundUnused = false,
+) {
+  await repo.update(projectId, id, { state: "failed", message });
+  await repo.releaseSlot(projectId, id, refundUnused);
+}
+
 async function prepareDraftImage(projectId: string, id: string) {
   try {
     await prepareFeaturedImage(
@@ -295,23 +343,24 @@ async function draftSources(
     planned ? 5 : 1,
   );
 }
-function draftOpportunity(
-  input: z.infer<typeof draftRequestSchema>,
-  planned: PlannedDraft | undefined,
-  targetUrl: string,
-) {
-  const kind = draftKind(planned);
+function draftOpportunity(draft: {
+  requestKey: string;
+  topic: string;
+  targetUrl: string;
+  planned: PlannedDraft | undefined;
+}) {
+  const kind = draftKind(draft.planned);
   return {
-    id: input.requestKey,
+    id: draft.requestKey,
     kind,
-    topic: input.topic,
+    topic: draft.topic,
     intent:
       kind === "new_content"
         ? "Write a distinct useful article from the saved outline and project goals. Do not duplicate existing pages."
         : "Improve the existing page while preserving its intent.",
     rationale:
-      planned?.rationale ??
+      draft.planned?.rationale ??
       "Agency-selected existing-page opportunity in OpenSEO.",
-    targetUrl: kind === "new_content" ? null : targetUrl,
+    targetUrl: kind === "new_content" ? null : draft.targetUrl,
   };
 }

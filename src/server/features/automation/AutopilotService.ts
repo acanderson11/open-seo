@@ -17,9 +17,18 @@ import { ProjectContextService } from "@/server/features/project-context/service
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import { discoverSiteUrls, readPages } from "@/server/lib/scrape";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
-import { plannerResult, dueForDraft } from "@/types/schemas/autopilot";
+import {
+  plannerResult,
+  plannerSelection,
+  dueForDraft,
+} from "@/types/schemas/autopilot";
+import { contentEngine } from "./ArticleGenerationStart";
+import { generateStage } from "./ArticleGenerationService";
+import {
+  PLANNER_INSTRUCTIONS,
+  PLANNER_PROMPT,
+} from "./ArticleGenerationPrompts";
 import { AppError } from "@/server/lib/errors";
-import { notifyReviewer } from "./DraftReviewService";
 import { executionHookRequest } from "./n8nExecution";
 export async function collectPlanningInput(projectId: string) {
   const project = await ProjectRepository.getProjectById(projectId);
@@ -136,18 +145,9 @@ export async function collectPlanningInput(projectId: string) {
 export async function selectOpportunity(
   input: Awaited<ReturnType<typeof collectPlanningInput>>,
 ) {
-  const result = plannerResult.parse(
-    await boundedJson(
-      await fetch(await executionHookRequest("openseo-plan-content", input)),
-    ),
-  );
-  if (
-    result.projectId !== input.projectId ||
-    result.contextVersion !== input.contextVersion
-  )
-    throw new AppError("CONFLICT");
-  if (result.selection.action === "draft") {
-    const selection = result.selection;
+  const result = await planSelection(input);
+  if (result.action === "draft") {
+    const selection = result;
     const overlap = input.pageInventory.find(
       (page) => topicOverlap(selection.topic, page) >= 0.8,
     );
@@ -174,7 +174,7 @@ export async function selectOpportunity(
     )
       throw new AppError("CONFLICT");
   }
-  return result.selection;
+  return result;
 }
 export async function producePlannedDraft(
   runId: string,
@@ -222,21 +222,45 @@ export async function producePlannedDraft(
     input.projectId,
     job?.state === "awaiting_approval"
       ? "Article ready for approval."
-      : "Latest article needs attention on the execution board.",
+      : job && ["preparing", "running"].includes(job.state)
+        ? "Article is being written."
+        : "Latest article needs attention on the execution board.",
   );
   return job
     ? { projectId: job.projectId, id: job.id, state: job.state }
     : null;
 }
-export async function notifyPlannedDraft(
-  job: {
-    projectId: string;
-    id: string;
-    state: string;
-  } | null,
+/** Asks the content model, or the n8n planner on that engine, to pick one topic or skip. */
+async function planSelection(
+  input: Awaited<ReturnType<typeof collectPlanningInput>>,
 ) {
-  if (job?.state === "awaiting_approval")
-    await notifyReviewer(job.projectId, job.id);
+  if ((await contentEngine()) === "app")
+    return generateStage(
+      {
+        projectId: input.projectId,
+        jobId: "planner",
+        version: 0,
+        name: "plan",
+      },
+      {
+        system: PLANNER_INSTRUCTIONS,
+        prompt: PLANNER_PROMPT,
+        input,
+        schema: plannerSelection,
+        maxOutputTokens: 2500,
+      },
+    );
+  const result = plannerResult.parse(
+    await boundedJson(
+      await fetch(await executionHookRequest("openseo-plan-content", input)),
+    ),
+  );
+  if (
+    result.projectId !== input.projectId ||
+    result.contextVersion !== input.contextVersion
+  )
+    throw new AppError("CONFLICT");
+  return result.selection;
 }
 export async function scheduleAutopilot(env: Env) {
   if (await isHostedServerAuthMode()) return;

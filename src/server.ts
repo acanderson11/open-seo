@@ -196,6 +196,7 @@ function handleFetch(
 // AuditScratchpad DO live in the open-seo-audit aux worker
 // (src/audit-worker.ts); this worker reaches them via cross-script bindings.
 export { ContentAutopilotWorkflow } from "./server/workflows/ContentAutopilotWorkflow";
+export { ArticleGenerationWorkflow } from "./server/workflows/ArticleGenerationWorkflow";
 export { RankCheckWorkflow } from "./server/workflows/RankCheckWorkflow";
 // Durable Object class for the onboarding strategy chat (Agents SDK).
 export { OnboardingChatAgent } from "./server/features/onboarding/OnboardingChatAgent";

@@ -20,7 +20,18 @@
     "mode": "smart",
   },
   "workflows": [
-    {"name":"content-autopilot-workflow","binding":"CONTENT_AUTOPILOT_WORKFLOW","class_name":"ContentAutopilotWorkflow"},
+    {
+      "name": "content-autopilot-workflow",
+      "binding": "CONTENT_AUTOPILOT_WORKFLOW",
+      "class_name": "ContentAutopilotWorkflow",
+    },
+    // One instance per article version: brief, write, review, and one
+    // correction as durable steps (AGENCY_CONTENT_ENGINE=app).
+    {
+      "name": "article-generation-workflow",
+      "binding": "ARTICLE_GENERATION_WORKFLOW",
+      "class_name": "ArticleGenerationWorkflow",
+    },
     // The site-audit engine lives in the open-seo-audit aux worker
     // (wrangler.audit.jsonc) — its memory spikes (multi-MB Lighthouse
     // payloads, in-flight HTML) OOMed this worker's near-limit baseline

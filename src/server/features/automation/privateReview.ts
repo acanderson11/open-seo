@@ -3,6 +3,7 @@ import { feedbackFields } from "@/types/schemas/contentFeedback";
 import { z } from "zod";
 import { loadPrivateReview, decidePrivateReview } from "./DraftReviewService";
 import { featuredImageData } from "./FeaturedImageService";
+import { startQueuedRevision } from "./ArticleRevisionService";
 const headers = {
   "cache-control": "no-store",
   "referrer-policy": "no-referrer",
@@ -62,11 +63,17 @@ export async function handlePrivateReview(request: Request) {
       await reader.cancel();
     }
     const body = bodySchema.parse(JSON.parse(text + decoder.decode()));
-    if (body.decision)
-      return Response.json(
-        await decidePrivateReview(body.token, body.decision, body.feedback),
-        { headers },
+    if (body.decision) {
+      const decided = await decidePrivateReview(
+        body.token,
+        body.decision,
+        body.feedback,
       );
+      if (body.decision === "changes_requested")
+        await startQueuedRevision(decided.projectId, decided.jobId);
+      // Only the message goes back to the reviewer, not internal ids.
+      return Response.json({ message: decided.message }, { headers });
+    }
     const { job, delivery } = await loadPrivateReview(body.token);
     const visual = await featuredImageData(job.projectId, job.id);
     return Response.json(

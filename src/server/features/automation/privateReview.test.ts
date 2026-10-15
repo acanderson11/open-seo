@@ -5,6 +5,7 @@ vi.mock("./DraftReviewService", () => ({
   decidePrivateReview: vi.fn(),
 }));
 vi.mock("./FeaturedImageService", () => ({ featuredImageData: vi.fn() }));
+vi.mock("./ArticleRevisionService", () => ({ startQueuedRevision: vi.fn() }));
 import { handlePrivateReview } from "./privateReview";
 it("serves syntactically valid client review controls with passage feedback", async () => {
   const response = await handlePrivateReview(

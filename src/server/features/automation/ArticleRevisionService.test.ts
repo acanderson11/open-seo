@@ -1,3 +1,9 @@
+vi.mock("./ArticleGenerationStart", () => ({
+  contentEngine: async () => "n8n",
+  startGeneration: vi.fn(),
+  generationInstanceId: (jobId: string, version: number) =>
+    `${jobId}-v${version}`,
+}));
 vi.mock("./ArticleResearchService", () => ({
   researchArticle: vi.fn(async () => []),
   RESEARCH_GUIDANCE: "Research first",
@@ -5,7 +11,7 @@ vi.mock("./ArticleResearchService", () => ({
 vi.mock("./FeaturedImageService", () => ({
   prepareFeaturedImage: vi.fn(async () => null),
 }));
-vi.mock("./DraftReviewService", () => ({ requestClientReview: vi.fn() }));
+vi.mock("./DraftReviewService", () => ({ requestReview: vi.fn() }));
 import { z } from "zod";
 vi.mock("./BriefRepository", () => ({
   BriefRepository: {

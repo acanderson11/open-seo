@@ -8,6 +8,7 @@ import { changeArticleLifecycle } from "@/server/features/automation/ArticleLife
 import { recoverUnknownArticle } from "@/server/features/automation/ManualArticleRecoveryService";
 import { BriefRepository } from "@/server/features/automation/BriefRepository";
 import { savePendingFeedback } from "@/server/features/automation/PendingFeedbackService";
+import { startQueuedRevision } from "@/server/features/automation/ArticleRevisionService";
 import { feedbackFields } from "@/types/schemas/contentFeedback";
 import { ContentLearningRepository as learning } from "@/server/features/automation/ContentLearningRepository";
 import { AutopilotRepository as auto } from "@/server/features/automation/AutopilotRepository";
@@ -107,7 +108,7 @@ export const decideAutomationDraft = createServerFn({ method: "POST" })
   .validator(draftDecisionSchema)
   .handler(async ({ context, data }) => {
     await authorize(context);
-    return decideDraft(
+    const job = await decideDraft(
       context.projectId,
       data.jobId,
       context.userId,
@@ -118,6 +119,9 @@ export const decideAutomationDraft = createServerFn({ method: "POST" })
         featuredImageId: data.featuredImageId,
       },
     );
+    if (data.decision === "changes_requested")
+      await startQueuedRevision(context.projectId, data.jobId);
+    return job;
   });
 
 const detailRequest = projectRequest.extend({ jobId: z.string().uuid() });
@@ -298,7 +302,10 @@ export const updatePendingArticleFeedback = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     await authorize(context);
-    return savePendingFeedback(context.projectId, data);
+    const result = await savePendingFeedback(context.projectId, data);
+    if (data.queueRevision)
+      await startQueuedRevision(context.projectId, data.jobId);
+    return result;
   });
 
 export const changeAutomationArticle = createServerFn({ method: "POST" })

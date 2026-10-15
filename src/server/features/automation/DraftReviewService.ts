@@ -113,15 +113,25 @@ export async function notifyReviewer(projectId: string, id: string) {
   }
 }
 
-/** Sends the client their review link when a version becomes ready for them. */
-export async function requestClientReview(projectId: string, id: string) {
+/**
+ * Emails the review link once a version passes quality review, for projects
+ * that review by link: every client-approval project, and agency projects on
+ * autopilot. Failures are recorded on the job by notifyReviewer.
+ */
+export async function requestReview(projectId: string, id: string) {
   const policy = await jobs.policy(projectId);
-  if (policy?.approval !== "client") return;
+  if (
+    !policy?.reviewerEmail ||
+    !(
+      policy.approval === "client" ||
+      (policy.approval === "agency" && policy.autopilot)
+    )
+  )
+    return;
   try {
     await notifyReviewer(projectId, id);
   } catch (error) {
-    // notifyReviewer records delivery failures on the job.
-    console.error("automation.client-review request failed:", error, {
+    console.error("automation.review-request failed:", error, {
       projectId,
       jobId: id,
     });
@@ -257,6 +267,8 @@ export async function decidePrivateReview(
     throw new AppError("CONFLICT");
   await auto.useLink(tokenHash);
   return {
+    projectId: link.projectId,
+    jobId: job.id,
     message:
       decision === "approved"
         ? transition.state === "ready_to_publish"

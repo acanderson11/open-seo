@@ -1,5 +1,4 @@
-import { AutomationRepository } from "./AutomationRepository";
-import { notifyReviewer } from "./DraftReviewService";
+import { requestReview } from "./DraftReviewService";
 import { ArticleLifecycleRepository as lifecycle } from "./ArticleLifecycleRepository";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import { validateTarget } from "./AutomationService";
@@ -39,18 +38,7 @@ export async function changeArticleLifecycle(
       "CONFLICT",
       "Article changed or publication has already started. Refresh before continuing.",
     );
-  const policy = await AutomationRepository.policy(projectId);
-  if (
-    input.action === "reopen" &&
-    policy?.autopilot &&
-    policy.approval === "client"
-  ) {
-    // Normal configured approval delivery; old links are invalidated by the transition.
-    try {
-      await notifyReviewer(projectId, input.jobId);
-    } catch {
-      /* Delivery failure is recorded by the review service. */
-    }
-  }
+  // Reopening invalidates old links; send a fresh one where review is by link.
+  if (input.action === "reopen") await requestReview(projectId, input.jobId);
   return { saved: true };
 }

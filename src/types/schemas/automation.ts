@@ -31,6 +31,40 @@ const block = z.discriminatedUnion("type", [
     items: z.array(prose.max(1500)).min(1).max(20),
   }),
 ]);
+export const articleDraftSchema = z.object({
+  title: prose.max(180),
+  metaDescription: prose.max(320),
+  blocks: z.array(block).min(3).max(100),
+});
+export type ArticleDraft = z.infer<typeof articleDraftSchema>;
+export const articleReviewSchema = z.object({
+  pass: z.boolean(),
+  issues: z
+    .array(
+      z.object({
+        severity: z.enum(["blocking", "warning"]),
+        reason: prose.max(1500),
+      }),
+    )
+    .max(30),
+});
+export type ArticleReview = z.infer<typeof articleReviewSchema>;
+/** Brief claims must quote their source word for word; see ArticleGenerationService. */
+export const articleBriefSchema = z.object({
+  title: prose.max(180),
+  angle: prose.max(2000),
+  outline: z.array(prose.max(500)).min(1).max(12),
+  claims: z
+    .array(
+      z.object({
+        statement: prose.max(1000),
+        sourceId: prose.max(100),
+        evidence: prose.max(1000),
+      }),
+    )
+    .max(30),
+});
+export type ArticleBrief = z.infer<typeof articleBriefSchema>;
 export const automationResultSchema = z.object({
   jobId: z.string(),
   projectId: z.string(),
@@ -39,22 +73,8 @@ export const automationResultSchema = z.object({
   n8nExecutionId: z.string().min(1).max(100),
   artifactVersion: z.number().int().min(1).max(4).default(1),
   publicationPerformed: z.literal(false),
-  draft: z.object({
-    title: prose.max(180),
-    metaDescription: prose.max(320),
-    blocks: z.array(block).min(3).max(100),
-  }),
-  review: z.object({
-    pass: z.boolean(),
-    issues: z
-      .array(
-        z.object({
-          severity: z.enum(["blocking", "warning"]),
-          reason: prose.max(1500),
-        }),
-      )
-      .max(30),
-  }),
+  draft: articleDraftSchema,
+  review: articleReviewSchema,
 });
 export type AutomationResult = z.infer<typeof automationResultSchema>;
 
@@ -70,7 +90,7 @@ const escape = (value: string) =>
         "'": "&#39;",
       })[c]!,
   );
-export function renderArticle(draft: AutomationResult["draft"]) {
+export function renderArticle(draft: ArticleDraft) {
   return draft.blocks
     .map((item) => {
       if ("items" in item)
