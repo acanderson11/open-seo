@@ -7,6 +7,16 @@ import {
   articleReviewSchema,
 } from "./automation";
 import { plannerSelection } from "./autopilot";
+/** True when some JSON Schema array has maxItems and union (anyOf) items. */
+const capped = (node: unknown): boolean =>
+  !!node &&
+  typeof node === "object" &&
+  (("maxItems" in node &&
+    "items" in node &&
+    !!node.items &&
+    typeof node.items === "object" &&
+    "anyOf" in node.items) ||
+    Object.values(node).some(capped));
 describe("execution artifact boundary", () => {
   it("renders only supported markup and escapes executable content", () => {
     expect(
@@ -31,13 +41,23 @@ describe("execution artifact boundary", () => {
       }).success,
     ).toBe(false);
   });
-  it("sends the model no oneOf, which Gemini's structured output rejects", () => {
+  it("sends the model no array cap over union items, which Gemini rejects", () => {
     for (const schema of [
       articleBriefSchema,
       articleDraftSchema,
       articleReviewSchema,
       plannerSelection,
     ])
-      expect(JSON.stringify(z.toJSONSchema(schema))).not.toContain('"oneOf"');
+      expect(capped(z.toJSONSchema(schema))).toBe(false);
+  });
+  it("still refuses an article with more than 100 blocks", () => {
+    const blocks = Array.from({ length: 101 }, () => ({
+      type: "paragraph" as const,
+      text: "Text",
+    }));
+    expect(
+      articleDraftSchema.safeParse({ title: "T", metaDescription: "D", blocks })
+        .success,
+    ).toBe(false);
   });
 });

@@ -24,8 +24,6 @@ export const draftDecisionSchema = projectRequest.extend({
   decision: z.enum(["approved", "changes_requested"]),
 });
 const prose = z.string().trim().min(1);
-// A plain union, not discriminatedUnion: that becomes JSON Schema `oneOf`,
-// which Gemini's structured output rejects with HTTP 400.
 const block = z.union([
   z.object({ type: z.enum(["paragraph", "h2", "h3"]), text: prose.max(4000) }),
   z.object({
@@ -36,7 +34,13 @@ const block = z.union([
 export const articleDraftSchema = z.object({
   title: prose.max(180),
   metaDescription: prose.max(320),
-  blocks: z.array(block).min(3).max(100),
+  // Gemini rejects maxItems on an array of union items with a bare
+  // "invalid argument" (HTTP 400), so the cap is a refinement, which stays
+  // out of the JSON Schema sent to the model.
+  blocks: z
+    .array(block)
+    .min(3)
+    .refine((blocks) => blocks.length <= 100, "At most 100 blocks"),
 });
 export type ArticleDraft = z.infer<typeof articleDraftSchema>;
 export const articleReviewSchema = z.object({
