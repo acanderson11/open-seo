@@ -9,9 +9,8 @@ import { AutomationRepository as jobs } from "./AutomationRepository";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { AppError } from "@/server/lib/errors";
 import { FeaturedImageRepository as featuredImages } from "./FeaturedImageRepository";
-import { boundedJson } from "./AutomationResult";
 import { approvedDelivery } from "./ArticleDelivery";
-import { executionHookRequest, executionSecret } from "./n8nExecution";
+import { reviewEmailConfig, sendReviewEmail } from "./ReviewEmail";
 
 type Job = NonNullable<Awaited<ReturnType<typeof jobs.job>>>;
 type Decision = "approved" | "changes_requested";
@@ -67,7 +66,8 @@ export async function notifyReviewer(projectId: string, id: string) {
   )
     throw new AppError("CONFLICT");
   const origin = await reviewOrigin();
-  await executionSecret();
+  await reviewEmailConfig();
+  const delivery = await approvedDelivery(projectId, job.kind);
   if (!(await auto.claimNotification(projectId, id))) return;
   try {
     const token = crypto.randomUUID() + crypto.randomUUID(),
@@ -81,24 +81,15 @@ export async function notifyReviewer(projectId: string, id: string) {
       recipient: policy.reviewerEmail,
       expiresAt: new Date(Date.now() + 14 * 86400000).toISOString(),
     });
-    const result = z.object({ sent: z.literal(true) }).parse(
-      await boundedJson(
-        await fetch(
-          await executionHookRequest(
-            "openseo-review-notification",
-            {
-              recipient: policy.reviewerEmail,
-              title: job.title ?? job.topic,
-              reviewUrl: `${origin}/review#${token}`,
-              expiresDays: 14,
-            },
-            30_000,
-          ),
-        ),
-      ),
-    );
-    if (result.sent)
-      await jobs.update(projectId, id, { notificationState: "sent" });
+    await sendReviewEmail({
+      to: policy.reviewerEmail,
+      title: job.title ?? job.topic,
+      reviewUrl: `${origin}/review#${token}`,
+      expiresDays: 14,
+      delivery: delivery.wordpressVersion ? "wordpress" : "manual",
+      idempotencyKey: `review-link/${tokenHash}`,
+    });
+    await jobs.update(projectId, id, { notificationState: "sent" });
   } catch (error) {
     console.error("automation.review-notification failed:", error, {
       projectId,

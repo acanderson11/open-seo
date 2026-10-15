@@ -1,10 +1,7 @@
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { AppError } from "@/server/lib/errors";
 
-type ExecutionHook =
-  | "openseo-content-job"
-  | "openseo-plan-content"
-  | "openseo-review-notification";
+type ExecutionHook = "openseo-content-job" | "openseo-plan-content";
 
 export async function executionSecret() {
   const secret = await getOptionalEnvValue("AGENCY_N8N_EXECUTION_SECRET");

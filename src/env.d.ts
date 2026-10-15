@@ -66,6 +66,8 @@ declare namespace Cloudflare {
     OPENROUTER_IMAGE_MODEL?: string;
     OPENROUTER_CONTENT_MODEL?: string;
     AGENCY_CONTENT_ENGINE?: string;
+    AGENCY_REVIEW_EMAIL_FROM?: string;
+    RESEND_API_KEY?: string;
   }
 }
 
