@@ -69,6 +69,18 @@ export const priorityRank: Record<TaskPriority, number> = {
   normal: 2,
   low: 3,
 };
+/**
+ * Blocked and review states an agency can remove from the board. Excludes
+ * publication_unknown: a WordPress post may exist, so it needs reconciling.
+ */
+export const REMOVABLE_DRAFT_STATES = [
+  "held",
+  "failed",
+  "publication_blocked",
+  "awaiting_approval",
+  "needs_revision",
+  "draft_ready",
+];
 // Workflow stages are projections, not writable approval/publication state.
 export function draftBoardStage(state: string): BoardStage {
   if (

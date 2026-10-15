@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { REMOVABLE_DRAFT_STATES } from "@/types/schemas/executionBoard";
 import { runBatch } from "@/db/runBatch";
 import {
   automationJobs as jobs,
@@ -13,6 +14,25 @@ export const MANUAL_DELIVERY_STATES = [
   "publication_blocked",
 ];
 export const ArticleLifecycleRepository = {
+  /** Hides a blocked or in-review article from the board; its history stays. */
+  async remove(projectId: string, jobId: string, version: number) {
+    return (
+      (
+        await db
+          .update(jobs)
+          .set({ state: "removed" })
+          .where(
+            and(
+              eq(jobs.projectId, projectId),
+              eq(jobs.id, jobId),
+              eq(jobs.version, version),
+              inArray(jobs.state, REMOVABLE_DRAFT_STATES),
+            ),
+          )
+          .returning({ id: jobs.id })
+      ).length === 1
+    );
+  },
   async reopen(
     projectId: string,
     jobId: string,

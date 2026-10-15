@@ -12,18 +12,22 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
+  changeAutomationArticle,
   decideAutomationDraft,
   getAutomationDraft,
   retryAutomationDraft,
 } from "@/serverFunctions/automation";
+import { REMOVABLE_DRAFT_STATES } from "@/types/schemas/executionBoard";
 export function Draft({
   projectId,
   jobId,
   onChanged,
+  onRemoved,
 }: {
   projectId: string;
   jobId: string;
   onChanged: () => Promise<unknown>;
+  onRemoved?: () => void;
 }) {
   const [feedback, setFeedback] = useState<ContentFeedback>({
     message: "",
@@ -88,6 +92,29 @@ export function Draft({
         getStandardErrorMessage(
           error,
           "Could not start this draft again. Refresh and check the board.",
+        ),
+      ),
+  });
+  const remove = useMutation({
+    mutationFn: () =>
+      changeAutomationArticle({
+        data: {
+          projectId,
+          jobId,
+          version: query.data!.version,
+          action: "remove",
+        },
+      }),
+    onSuccess: () => {
+      toast.success("Article removed from the board.");
+      void onChanged();
+      onRemoved?.();
+    },
+    onError: (error) =>
+      toast.error(
+        getStandardErrorMessage(
+          error,
+          "This article changed. Refresh before removing it.",
         ),
       ),
   });
@@ -249,6 +276,22 @@ export function Draft({
           void onChanged();
         }}
       />
+      {REMOVABLE_DRAFT_STATES.includes(job.state) && (
+        <button
+          className="btn btn-sm btn-ghost text-error"
+          disabled={remove.isPending}
+          onClick={() => {
+            if (
+              window.confirm(
+                "Remove this article from the board? This does not refund its monthly attempt.",
+              )
+            )
+              remove.mutate();
+          }}
+        >
+          Remove article
+        </button>
+      )}
       <ArticleFeedbackHistory
         history={job.history}
         currentVersion={job.version}

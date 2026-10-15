@@ -9,7 +9,7 @@ export async function changeArticleLifecycle(
   input: {
     jobId: string;
     version: number;
-    action: "reopen" | "published";
+    action: "reopen" | "published" | "remove";
     publishedUrl?: string;
   },
 ) {
@@ -21,6 +21,8 @@ export async function changeArticleLifecycle(
       input.version,
       actorId,
     );
+  else if (input.action === "remove")
+    saved = await lifecycle.remove(projectId, input.jobId, input.version);
   else {
     const project = await ProjectRepository.getProjectById(projectId);
     if (!project?.domain || !input.publishedUrl)

@@ -1,7 +1,7 @@
 import type { ContentFeedback } from "@/types/schemas/contentFeedback";
 import { MAX_ARTICLE_VERSION } from "@/types/schemas/automation";
 import { runBatch } from "@/db/runBatch";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   automationPolicies,
@@ -93,7 +93,12 @@ export const AutomationRepository = {
         createdAt: automationJobs.createdAt,
       })
       .from(automationJobs)
-      .where(eq(automationJobs.projectId, projectId))
+      .where(
+        and(
+          eq(automationJobs.projectId, projectId),
+          ne(automationJobs.state, "removed"),
+        ),
+      )
       .orderBy(desc(automationJobs.createdAt))
       .limit(50);
   },

@@ -62,6 +62,19 @@ describe("durable automation queue", () => {
     expect(claims.filter(Boolean)).toHaveLength(1);
     expect((await repo.job("p1", "j1"))?.state).toBe("queued");
   });
+  it("removes only blocked or in-review articles and hides them from the board", async () => {
+    const lifecycle = (await import("./ArticleLifecycleRepository"))
+      .ArticleLifecycleRepository;
+    await repo.create({ ...job("failed"), state: "failed" });
+    await repo.create({
+      ...job("unknown"),
+      requestKey: "request-2",
+      state: "publication_unknown",
+    });
+    expect(await lifecycle.remove("p1", "unknown", 1)).toBe(false);
+    expect(await lifecycle.remove("p1", "failed", 1)).toBe(true);
+    expect((await repo.jobs("p1")).map((row) => row.id)).toEqual(["unknown"]);
+  });
   it("rejects stale settings and pauses without resetting usage", async () => {
     expect(
       await repo.savePolicy("p1", {

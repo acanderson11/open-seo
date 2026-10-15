@@ -305,7 +305,7 @@ export const changeAutomationArticle = createServerFn({ method: "POST" })
   .validator(
     detailRequest.extend({
       version: z.number().int().positive(),
-      action: z.enum(["reopen", "published"]),
+      action: z.enum(["reopen", "published", "remove"]),
       publishedUrl: z.string().url().max(1000).optional(),
     }),
   )

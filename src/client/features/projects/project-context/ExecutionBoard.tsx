@@ -376,6 +376,7 @@ function DraftDialog({
         projectId={projectId}
         jobId={jobId}
         onChanged={onChanged}
+        onRemoved={onClose}
       />
     </dialog>
   );
