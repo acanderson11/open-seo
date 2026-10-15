@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { renderArticle, articleDraftSchema } from "./automation";
+import { z } from "zod";
+import {
+  renderArticle,
+  articleBriefSchema,
+  articleDraftSchema,
+  articleReviewSchema,
+} from "./automation";
+import { plannerSelection } from "./autopilot";
 describe("execution artifact boundary", () => {
   it("renders only supported markup and escapes executable content", () => {
     expect(
@@ -23,5 +30,14 @@ describe("execution artifact boundary", () => {
         html: "<script>bad()</script>",
       }).success,
     ).toBe(false);
+  });
+  it("sends the model no oneOf, which Gemini's structured output rejects", () => {
+    for (const schema of [
+      articleBriefSchema,
+      articleDraftSchema,
+      articleReviewSchema,
+      plannerSelection,
+    ])
+      expect(JSON.stringify(z.toJSONSchema(schema))).not.toContain('"oneOf"');
   });
 });

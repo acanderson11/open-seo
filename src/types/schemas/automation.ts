@@ -24,7 +24,9 @@ export const draftDecisionSchema = projectRequest.extend({
   decision: z.enum(["approved", "changes_requested"]),
 });
 const prose = z.string().trim().min(1);
-const block = z.discriminatedUnion("type", [
+// A plain union, not discriminatedUnion: that becomes JSON Schema `oneOf`,
+// which Gemini's structured output rejects with HTTP 400.
+const block = z.union([
   z.object({ type: z.enum(["paragraph", "h2", "h3"]), text: prose.max(4000) }),
   z.object({
     type: z.enum(["ul", "ol"]),

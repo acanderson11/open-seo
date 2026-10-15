@@ -1,4 +1,4 @@
-import { generateText, NoObjectGeneratedError, Output } from "ai";
+import { APICallError, generateText, NoObjectGeneratedError, Output } from "ai";
 import type { z } from "zod";
 import { getContentModel } from "@/server/lib/openrouter";
 import { openRouterCostUsd } from "@/server/lib/chatAgent";
@@ -72,6 +72,13 @@ export async function generateStage<T>(
       abortSignal: AbortSignal.timeout(180_000),
     });
   } catch (error) {
+    if (APICallError.isInstance(error))
+      console.error("automation.generation-stage request rejected", {
+        ...stage,
+        model: content.modelId,
+        status: error.statusCode,
+        body: error.responseBody?.slice(0, 1000),
+      });
     if (!NoObjectGeneratedError.isInstance(error)) throw error;
     console.error("automation.generation-stage output rejected", {
       ...stage,

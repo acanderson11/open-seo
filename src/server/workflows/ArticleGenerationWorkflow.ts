@@ -86,10 +86,13 @@ export class ArticleGenerationWorkflow extends WorkflowEntrypoint<
         saveGeneration(request, result, warning),
       );
     } catch (error) {
-      console.error("automation.generation failed:", error, {
+      // The reason goes in as a string: Workers Logs kept only the last stack
+      // line of a logged Error object.
+      console.error("automation.generation failed", {
         ...stage,
         step: current,
         charged,
+        reason: failureReason(error),
       });
       await pgStep(step, "Record failure", record, () =>
         failGeneration(request, {
