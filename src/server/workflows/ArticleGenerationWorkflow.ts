@@ -49,48 +49,53 @@ export class ArticleGenerationWorkflow extends WorkflowEntrypoint<
       version: request.version,
     };
     let charged = false;
+    let current = "Prepare sources and Context";
     try {
-      const { job, warning } = await pgStep(
-        step,
-        "Prepare sources and Context",
-        prepare,
-        () => prepareGeneration(request),
+      const { job, warning } = await pgStep(step, current, prepare, () =>
+        prepareGeneration(request),
       );
       charged = !job.savedBrief;
-      const brief = await pgStep(step, "Write brief", model, () =>
+      current = "Write brief";
+      const brief = await pgStep(step, current, model, () =>
         createBrief(stage, job),
       );
       charged = true;
-      let draft = await pgStep(step, "Write article", model, () =>
+      current = "Write article";
+      let draft = await pgStep(step, current, model, () =>
         writeArticle(stage, job, brief),
       );
-      let review = await pgStep(step, "Review article", model, () =>
+      current = "Review article";
+      let review = await pgStep(step, current, model, () =>
         reviewArticle(stage, { job, brief, draft }, false),
       );
       if (!review.pass) {
         const first = review;
-        draft = await pgStep(step, "Correct review findings", model, () =>
+        current = "Correct review findings";
+        draft = await pgStep(step, current, model, () =>
           correctArticle(stage, { job, brief, draft, review: first }),
         );
         const corrected = draft;
-        review = await pgStep(step, "Review corrected article", model, () =>
+        current = "Review corrected article";
+        review = await pgStep(step, current, model, () =>
           reviewArticle(stage, { job, brief, draft: corrected }, true),
         );
       }
       const result = { draft, review };
-      await pgStep(step, "Save article version", record, () =>
+      current = "Save article version";
+      await pgStep(step, current, record, () =>
         saveGeneration(request, result, warning),
       );
     } catch (error) {
       console.error("automation.generation failed:", error, {
         ...stage,
+        step: current,
         charged,
       });
       await pgStep(step, "Record failure", record, () =>
         failGeneration(request, {
           charged,
           message: charged
-            ? "Article generation stopped after retries. The attempt counts toward the monthly allowance; your feedback is kept. Request it again when ready."
+            ? `"${current}" failed after retries: ${failureReason(error)}. The attempt counts toward the monthly allowance; your feedback is kept. Request it again when ready.`
             : request.version === 1
               ? preparationMessage(
                   error,
@@ -101,4 +106,10 @@ export class ArticleGenerationWorkflow extends WorkflowEntrypoint<
       );
     }
   }
+}
+
+/** One line saying why a step failed, safe to show the agency on the article. */
+function failureReason(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (message.split("\n")[0] ?? "").slice(0, 200) || "unknown error";
 }

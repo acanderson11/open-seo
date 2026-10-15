@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { generateText, NoObjectGeneratedError, Output } from "ai";
 import type { z } from "zod";
 import { getContentModel } from "@/server/lib/openrouter";
 import { openRouterCostUsd } from "@/server/lib/chatAgent";
@@ -56,16 +56,36 @@ export async function generateStage<T>(
       "AUTH_CONFIG_MISSING",
       "Set OPENROUTER_CONTENT_MODEL to use the in-app article engine.",
     );
-  const response = await generateText({
-    model: content.model,
-    system: call.system,
-    prompt: call.prompt + JSON.stringify(call.input),
-    output: Output.object({ schema: call.schema }),
-    temperature: 0.2,
-    maxOutputTokens: call.maxOutputTokens ?? 8000,
-    maxRetries: 0,
-    abortSignal: AbortSignal.timeout(180_000),
-  });
+  let response;
+  try {
+    response = await generateText({
+      model: content.model,
+      system: call.system,
+      prompt: call.prompt + JSON.stringify(call.input),
+      output: Output.object({ schema: call.schema }),
+      temperature: 0.2,
+      maxOutputTokens: call.maxOutputTokens ?? 8000,
+      // Reasoning tokens count against the output limit; keep them small so
+      // the structured reply fits (the same setting briefs use).
+      providerOptions: { openrouter: { reasoning: { effort: "low" } } },
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(180_000),
+    });
+  } catch (error) {
+    if (!NoObjectGeneratedError.isInstance(error)) throw error;
+    console.error("automation.generation-stage output rejected", {
+      ...stage,
+      model: content.modelId,
+      finishReason: error.finishReason,
+      usage: error.usage,
+    });
+    throw new AppError(
+      "UPSTREAM_UNAVAILABLE",
+      error.finishReason === "length"
+        ? "the model's reply was cut off at the output limit"
+        : "the model's reply did not match the expected format",
+    );
+  }
   console.info("automation.generation-stage", {
     ...stage,
     model: content.modelId,
