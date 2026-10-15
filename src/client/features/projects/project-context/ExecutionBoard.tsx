@@ -50,7 +50,11 @@ export function ExecutionBoard({
     [onlyCritical, setOnlyCritical] = useState(false),
     [editor, setEditor] = useState<Task | "new" | null>(null),
     [draftId, setDraftId] = useState<string>(),
-    [generating, setGenerating] = useState(!!topic);
+    [generating, setGenerating] = useState(!!topic),
+    [prefill, setPrefill] = useState<{ topic?: string; targetUrl?: string }>({
+      topic,
+      targetUrl,
+    });
   const refresh = () => client.invalidateQueries({ queryKey: key });
   const update = useMutation({
     mutationFn: (data: Task) =>
@@ -239,9 +243,11 @@ export function ExecutionBoard({
       {generating && (
         <section className="max-w-2xl rounded-lg border border-base-300 p-4">
           <ContentDraftForm
+            key={`${prefill.topic}
+${prefill.targetUrl}`}
             projectId={projectId}
-            topic={topic}
-            targetUrl={targetUrl}
+            topic={prefill.topic}
+            targetUrl={prefill.targetUrl}
             policy={data.policy}
             onCreated={(id) => {
               setDraftId(id);
@@ -297,6 +303,11 @@ export function ExecutionBoard({
           }}
           onClose={() => setDraftId(undefined)}
           onChanged={refresh}
+          onStartAgain={(input) => {
+            setDraftId(undefined);
+            setPrefill(input);
+            setGenerating(true);
+          }}
         />
       )}
     </main>
@@ -310,6 +321,7 @@ function DraftDialog({
   onOpenTask,
   onClose,
   onChanged,
+  onStartAgain,
 }: {
   projectId: string;
   jobId: string;
@@ -317,6 +329,7 @@ function DraftDialog({
   onOpenTask: (id: string) => void;
   onClose: () => void;
   onChanged: () => Promise<unknown>;
+  onStartAgain: (input: { topic: string; targetUrl?: string }) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const requestClose = () => {
@@ -376,6 +389,7 @@ function DraftDialog({
         projectId={projectId}
         jobId={jobId}
         onChanged={onChanged}
+        onStartAgain={onStartAgain}
       />
     </dialog>
   );

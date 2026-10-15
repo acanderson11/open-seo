@@ -94,11 +94,14 @@ export class ArticleGenerationWorkflow extends WorkflowEntrypoint<
         charged,
         reason: failureReason(error),
       });
+      const failed = `"${current}" failed after retries: ${failureReason(error)}. The attempt counts toward the monthly allowance`;
       await pgStep(step, "Record failure", record, () =>
         failGeneration(request, {
           charged,
           message: charged
-            ? `"${current}" failed after retries: ${failureReason(error)}. The attempt counts toward the monthly allowance; your feedback is kept. Request it again when ready.`
+            ? request.version === 1
+              ? `${failed}. Use Start again to create a new draft when ready.`
+              : `${failed}; your feedback is kept. Request it again when ready.`
             : request.version === 1
               ? preparationMessage(
                   error,

@@ -19,10 +19,12 @@ export function Draft({
   projectId,
   jobId,
   onChanged,
+  onStartAgain,
 }: {
   projectId: string;
   jobId: string;
   onChanged: () => Promise<unknown>;
+  onStartAgain?: (input: { topic: string; targetUrl?: string }) => void;
 }) {
   const [feedback, setFeedback] = useState<ContentFeedback>({
     message: "",
@@ -117,6 +119,19 @@ export function Draft({
       data-review-dirty={unsentFeedback}
     >
       <DraftNotices job={job} submittedFeedback={submittedFeedback} />
+      {onStartAgain && job.state === "failed" && job.version === 1 && (
+        <button
+          className="btn btn-sm"
+          onClick={() =>
+            onStartAgain({
+              topic: job.topic,
+              targetUrl: job.targetUrl ?? undefined,
+            })
+          }
+        >
+          Start again
+        </button>
+      )}
       <ArticleResearchGaps brief={job.researchBrief} />
       <FeaturedImagePanel
         projectId={projectId}

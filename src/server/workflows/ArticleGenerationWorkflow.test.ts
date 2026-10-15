@@ -8,7 +8,7 @@ const m = vi.hoisted(() => ({
   review: vi.fn(),
   correct: vi.fn(),
   save: vi.fn(),
-  fail: vi.fn(),
+  fail: vi.fn<(request: unknown, failure: { message: string }) => void>(),
 }));
 vi.mock("cloudflare:workers", () => ({
   WorkflowEntrypoint: class {
@@ -87,7 +87,9 @@ it("corrects a failed review exactly once and saves the corrected draft", async 
 it("charges a run that fails after a model call and refunds one that fails before", async () => {
   m.write.mockRejectedValue(new Error("model unavailable"));
   await run();
+  // A first draft has no feedback to keep; the reviewer starts a new draft.
   expect(m.fail.mock.lastCall?.[1]).toMatchObject({ charged: true });
+  expect(m.fail.mock.lastCall?.[1].message).not.toContain("feedback");
 
   m.prepare.mockRejectedValue(new Error("site unreadable"));
   await run();
