@@ -45,6 +45,8 @@ export type GenerationRequest = {
   jobId: string;
   /** The version this run produces: 1 for a new draft, n + 1 for a revision of n. */
   version: number;
+  /** Set by startGeneration so a version that runs again gets its own Workflow instance. */
+  runId?: string;
   /** Draft runs only. */
   domain?: string;
   topic?: string;

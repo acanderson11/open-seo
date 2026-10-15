@@ -91,7 +91,7 @@ export async function researchArticle(
     jobId,
     artifactVersion: version,
   }));
-  await ArticleResearchRepository.save(rows);
+  await ArticleResearchRepository.replace(projectId, jobId, version, rows);
   return rows.map((s) => ({
     id: s.id,
     url: s.url,

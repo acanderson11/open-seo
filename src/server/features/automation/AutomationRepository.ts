@@ -170,6 +170,24 @@ export const AutomationRepository = {
   ) {
     await db.update(automationJobs).set(input).where(jobScope(projectId, id));
   },
+  /** Moves a failed first draft back to queued; false when it is no longer failed. */
+  async claimRetry(projectId: string, id: string) {
+    return (
+      (
+        await db
+          .update(automationJobs)
+          .set({ state: "queued", message: null })
+          .where(
+            and(
+              jobScope(projectId, id),
+              eq(automationJobs.state, "failed"),
+              eq(automationJobs.version, 1),
+            ),
+          )
+          .returning({ id: automationJobs.id })
+      ).length === 1
+    );
+  },
   async releaseSlot(projectId: string, jobId: string, refundUnused = false) {
     await db
       .update(automationPolicies)

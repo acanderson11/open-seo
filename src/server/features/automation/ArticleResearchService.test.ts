@@ -12,7 +12,7 @@ const m = vi.hoisted(() => ({
   >(),
   pages: vi.fn(),
   hosted: vi.fn(),
-  save: vi.fn(),
+  replace: vi.fn(),
   project: vi.fn(),
 }));
 vi.mock("@/server/lib/dataforseo", () => ({
@@ -26,7 +26,7 @@ vi.mock("@/server/lib/runtime-env", () => ({
 }));
 vi.mock("@/server/lib/scrape", () => ({ readPages: m.pages }));
 vi.mock("./ArticleResearchRepository", () => ({
-  ArticleResearchRepository: { save: m.save },
+  ArticleResearchRepository: { replace: m.replace },
 }));
 vi.mock("@/server/features/projects/repositories/ProjectRepository", () => ({
   ProjectRepository: { getProjectById: m.project },
@@ -66,7 +66,7 @@ it("reads actual pages, deduplicates results and persists version-scoped sources
   expect(m.pages).toHaveBeenCalledTimes(1);
   expect(sources[0].text).toContain("Retrieved evidence");
   expect(sources[0].text).not.toContain("Unverified snippet");
-  expect(m.save).toHaveBeenCalledWith([
+  expect(m.replace).toHaveBeenCalledWith("p", "j", 2, [
     expect.objectContaining({
       projectId: "p",
       jobId: "j",

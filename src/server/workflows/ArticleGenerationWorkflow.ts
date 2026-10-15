@@ -100,7 +100,7 @@ export class ArticleGenerationWorkflow extends WorkflowEntrypoint<
           charged,
           message: charged
             ? request.version === 1
-              ? `${failed}. Use Start again to create a new draft when ready.`
+              ? `${failed}. Start it again when ready.`
               : `${failed}; your feedback is kept. Request it again when ready.`
             : request.version === 1
               ? preparationMessage(

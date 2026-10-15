@@ -53,6 +53,15 @@ describe("durable automation queue", () => {
     expect(await repo.reserve("p1", "j3", p.version, "2026-09")).toBe(false);
     expect(await repo.reserve("p1", "j3", p.version, "2026-10")).toBe(true);
   });
+  it("lets only one request restart a failed first draft", async () => {
+    await repo.create({ ...job("j1"), state: "failed" });
+    const claims = await Promise.all([
+      repo.claimRetry("p1", "j1"),
+      repo.claimRetry("p1", "j1"),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect((await repo.job("p1", "j1"))?.state).toBe("queued");
+  });
   it("rejects stale settings and pauses without resetting usage", async () => {
     expect(
       await repo.savePolicy("p1", {

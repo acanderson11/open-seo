@@ -35,7 +35,10 @@ import { requireOrgPermission } from "@/server/auth/org-gate";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { AppError } from "@/server/lib/errors";
 import { AutomationRepository as repo } from "@/server/features/automation/AutomationRepository";
-import { startDraft } from "@/server/features/automation/AutomationService";
+import {
+  retryDraft,
+  startDraft,
+} from "@/server/features/automation/AutomationService";
 import {
   projectRequest,
   automationPolicySchema,
@@ -124,6 +127,14 @@ export const decideAutomationDraft = createServerFn({ method: "POST" })
   });
 
 const detailRequest = projectRequest.extend({ jobId: z.string().uuid() });
+export const retryAutomationDraft = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(detailRequest)
+  .handler(async ({ context, data }) => {
+    await authorize(context);
+    if (!context.project.domain) throw new AppError("VALIDATION_ERROR");
+    return retryDraft(context.projectId, context.project.domain, data.jobId);
+  });
 export const getAutomationDraft = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(detailRequest)

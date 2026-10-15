@@ -131,6 +131,51 @@ export async function startDraft(
   return repo.job(projectId, id);
 }
 
+/**
+ * Runs a failed first draft again on the same job, reserving a new monthly
+ * attempt. Only drafts started from a topic and page qualify: saved-brief and
+ * autopilot drafts (the ones with a rationale) do not store their inputs.
+ */
+export async function retryDraft(
+  projectId: string,
+  domain: string,
+  id: string,
+) {
+  const policy = await repo.policy(projectId);
+  if (!policy?.enabled) throw new AppError("FORBIDDEN");
+  const job = await repo.job(projectId, id);
+  if (
+    !job?.targetUrl ||
+    job.rationale ||
+    !(await repo.claimRetry(projectId, id))
+  )
+    throw new AppError("CONFLICT");
+  if (
+    !(await repo.reserve(
+      projectId,
+      id,
+      policy.version,
+      new Date().toISOString().slice(0, 7),
+    ))
+  ) {
+    await repo.update(projectId, id, {
+      state: "failed",
+      message:
+        "Could not start again: the monthly allowance is used up, the policy changed, or another job is still running.",
+    });
+    return repo.job(projectId, id);
+  }
+  await startGeneration({
+    projectId,
+    jobId: id,
+    version: 1,
+    domain,
+    topic: job.topic,
+    targetUrl: job.targetUrl,
+  });
+  return repo.job(projectId, id);
+}
+
 /** Collects the sources and Context for a new draft. Runs before any paid model call. */
 export async function buildDraftJob(draft: {
   projectId: string;

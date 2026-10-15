@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
-  create: vi.fn(),
+  create: vi.fn<(options: { id: string }) => Promise<unknown>>(),
   get: vi.fn(),
   update: vi.fn(),
   release: vi.fn(),
@@ -28,6 +28,14 @@ it("refunds a draft whose generation run never started", async () => {
   await startGeneration({ projectId: "p1", jobId: "j1", version: 1 });
   expect(m.update.mock.lastCall?.[2]).toMatchObject({ state: "failed" });
   expect(m.release).toHaveBeenCalledWith("p1", "j1", true);
+});
+
+it("gives a version that runs again its own Workflow instance", async () => {
+  m.create.mockResolvedValue({});
+  await startGeneration({ projectId: "p1", jobId: "j1", version: 2 });
+  await startGeneration({ projectId: "p1", jobId: "j1", version: 2 });
+  const [first, second] = m.create.mock.calls.map(([options]) => options.id);
+  expect(first).not.toBe(second);
 });
 
 it("leaves the job alone when the run started despite a failed response", async () => {

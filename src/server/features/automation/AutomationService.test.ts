@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     update: vi.fn(),
     job: vi.fn(),
     releaseSlot: vi.fn(),
+    claimRetry: vi.fn(),
   },
   context: vi.fn(),
   render: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock(
 vi.mock("@/server/lib/scrape", () => ({ readPages: mocks.pages }));
 import {
   buildDraftJob,
+  retryDraft,
   saveDraft,
   startDraft,
   validateTarget,
@@ -70,6 +72,7 @@ beforeEach(() => {
     pages: [{ url: input.targetUrl, text: "Fictional page evidence" }],
   });
   mocks.repo.job.mockResolvedValue({ id: "job" });
+  mocks.repo.claimRetry.mockResolvedValue(true);
 });
 
 describe("starting a draft", () => {
@@ -99,6 +102,38 @@ describe("starting a draft", () => {
     expect(mocks.repo.update.mock.lastCall?.[2]).toMatchObject({
       state: "held",
     });
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+});
+
+describe("starting a failed draft again", () => {
+  const failed = { topic: input.topic, targetUrl: input.targetUrl };
+  it("reruns the same job with its topic and page", async () => {
+    mocks.repo.job.mockResolvedValue({ ...failed, rationale: null });
+    await retryDraft("p1", "example.com", "job");
+    expect(mocks.repo.reserve).toHaveBeenCalled();
+    expect(mocks.start).toHaveBeenCalledWith({
+      projectId: "p1",
+      jobId: "job",
+      version: 1,
+      domain: "example.com",
+      topic: input.topic,
+      targetUrl: input.targetUrl,
+    });
+  });
+  it("keeps the draft failed when the monthly reservation fails", async () => {
+    mocks.repo.job.mockResolvedValue({ ...failed, rationale: null });
+    mocks.repo.reserve.mockResolvedValue(false);
+    await retryDraft("p1", "example.com", "job");
+    expect(mocks.repo.update.mock.lastCall?.[2]).toMatchObject({
+      state: "failed",
+    });
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+  it("refuses a planned draft, whose inputs were not stored", async () => {
+    mocks.repo.job.mockResolvedValue({ ...failed, rationale: "Saved brief" });
+    await expect(retryDraft("p1", "example.com", "job")).rejects.toThrow();
+    expect(mocks.repo.claimRetry).not.toHaveBeenCalled();
     expect(mocks.start).not.toHaveBeenCalled();
   });
 });

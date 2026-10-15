@@ -234,7 +234,7 @@ export async function saveGeneration(
   warning: string | null,
 ) {
   const { projectId, jobId, version } = request;
-  const executionId = "app:" + generationInstanceId(jobId, version);
+  const executionId = "app:" + generationInstanceId(request);
   if (version === 1)
     return saveDraft(projectId, jobId, { ...result, executionId });
   const job = await jobs.job(projectId, jobId);

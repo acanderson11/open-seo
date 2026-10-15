@@ -14,17 +14,16 @@ import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   decideAutomationDraft,
   getAutomationDraft,
+  retryAutomationDraft,
 } from "@/serverFunctions/automation";
 export function Draft({
   projectId,
   jobId,
   onChanged,
-  onStartAgain,
 }: {
   projectId: string;
   jobId: string;
   onChanged: () => Promise<unknown>;
-  onStartAgain?: (input: { topic: string; targetUrl?: string }) => void;
 }) {
   const [feedback, setFeedback] = useState<ContentFeedback>({
     message: "",
@@ -78,6 +77,20 @@ export function Draft({
         ),
       ),
   });
+  const retry = useMutation({
+    mutationFn: () => retryAutomationDraft({ data: { projectId, jobId } }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: key });
+      void onChanged();
+    },
+    onError: (error) =>
+      toast.error(
+        getStandardErrorMessage(
+          error,
+          "Could not start this draft again. Refresh and check the board.",
+        ),
+      ),
+  });
   if (query.isPending) return <p role="status">Loading article…</p>;
   if (query.isError)
     return (
@@ -119,19 +132,24 @@ export function Draft({
       data-review-dirty={unsentFeedback}
     >
       <DraftNotices job={job} submittedFeedback={submittedFeedback} />
-      {onStartAgain && job.state === "failed" && job.version === 1 && (
-        <button
-          className="btn btn-sm"
-          onClick={() =>
-            onStartAgain({
-              topic: job.topic,
-              targetUrl: job.targetUrl ?? undefined,
-            })
-          }
-        >
-          Start again
-        </button>
-      )}
+      {job.state === "failed" &&
+        job.version === 1 &&
+        !job.rationale &&
+        !!job.targetUrl && (
+          <div className="space-y-1">
+            <button
+              className="btn btn-sm"
+              disabled={retry.isPending}
+              onClick={() => retry.mutate()}
+            >
+              {retry.isPending ? "Starting…" : "Start again"}
+            </button>
+            <p className="text-xs text-base-content/60">
+              Runs this draft again with the same topic and page. Uses one
+              monthly attempt.
+            </p>
+          </div>
+        )}
       <ArticleResearchGaps brief={job.researchBrief} />
       <FeaturedImagePanel
         projectId={projectId}
