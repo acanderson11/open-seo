@@ -96,18 +96,18 @@ export const ArticleRevisionRepository = {
       );
     return true;
   },
+  /** Returns a revision that could not finish to the reviewer, feedback intact. */
   async failRevision(
     projectId: string,
     id: string,
     version: number,
-    state: "outcome_unknown" | "needs_revision",
     message: string,
   ) {
     return (
       (
         await db
           .update(automationJobs)
-          .set({ state, message })
+          .set({ state: "needs_revision", message })
           .where(
             and(
               jobScope(projectId, id),

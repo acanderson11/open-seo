@@ -5,20 +5,17 @@ import { AutomationRepository as jobs } from "./AutomationRepository";
 import { ArticleRevisionRepository as revisions } from "./ArticleRevisionRepository";
 import { ContentLearningRepository as learning } from "./ContentLearningRepository";
 import { contextSnapshot } from "./AutomationService";
-import { boundedResult } from "./AutomationResult";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import {
   MAX_ARTICLE_VERSION,
   renderArticle,
   type ArticleDraft,
   type ArticleReview,
-  type AutomationResult,
 } from "@/types/schemas/automation";
 import { AppError } from "@/server/lib/errors";
 import { prepareFeaturedImage } from "./FeaturedImageService";
-import { executionHookRequest } from "./n8nExecution";
 import { requestReview } from "./DraftReviewService";
-import { contentEngine, startGeneration } from "./ArticleGenerationStart";
+import { startGeneration } from "./ArticleGenerationStart";
 import type { GenerationJob } from "./ArticleGenerationInput";
 
 type Job = NonNullable<Awaited<ReturnType<typeof jobs.job>>>;
@@ -35,7 +32,7 @@ const START_FAILURE =
 const UNREADABLE_SOURCE =
   "Revision could not start because the site's source page could not be read. Check site access or refresh the saved brief, then request it again.";
 
-/** Claims a queued revision, reserves the project's slot, and runs it on the configured engine. */
+/** Claims a queued revision, reserves the project's slot, and starts its generation run. */
 export async function reviseArticle(
   projectId: string,
   id: string,
@@ -65,19 +62,16 @@ export async function reviseArticle(
     ))
   )
     await failRevision(projectId, id, version, START_FAILURE, true);
-  else if ((await contentEngine()) === "app")
-    await startGeneration({ projectId, jobId: id, version: version + 1 });
-  else await runN8nRevision(job, policy, project.domain, feedback);
+  else await startGeneration({ projectId, jobId: id, version: version + 1 });
   const updated = await jobs.job(projectId, id);
   return updated ? { projectId, id, state: updated.state } : null;
 }
 
 /**
- * On the in-app engine, starts a just-queued revision now rather than at the
- * next scheduler check. A busy project slot leaves it queued for the scheduler.
+ * Starts a just-queued revision now rather than at the next scheduler check.
+ * A busy project slot leaves it queued for the scheduler.
  */
 export async function startQueuedRevision(projectId: string, id: string) {
-  if ((await contentEngine()) !== "app") return;
   const [job, policy] = await Promise.all([
     jobs.job(projectId, id),
     jobs.policy(projectId),
@@ -174,80 +168,6 @@ export async function buildRevisionJob(
   };
 }
 
-/** The n8n engine: one blocking webhook call that runs every stage remotely. */
-async function runN8nRevision(
-  job: Job,
-  policy: Policy,
-  domain: string,
-  feedback: Feedback[],
-) {
-  const { projectId, id, version } = job;
-  let dispatched = false;
-  try {
-    const prepared = await buildRevisionJob(job, policy, domain, feedback);
-    const request = await executionHookRequest("openseo-content-job", {
-      ...prepared.job,
-      jobId: id,
-      projectId,
-      feedback: [],
-      lease: {
-        jobId: id,
-        projectId,
-        reserved: true,
-        expiresAt: new Date(Date.now() + 300000).toISOString(),
-      },
-      policy: {
-        enabled: true,
-        paused: false,
-        contentAllowed: true,
-        approval: policy.approval,
-        publication: "manual",
-      },
-    });
-    dispatched = true;
-    const result = await boundedResult(await fetch(request));
-    assertRevisionIdentity(result, {
-      projectId,
-      id,
-      version: version + 1,
-      contextVersion: prepared.job.contextVersion,
-      policyVersion: prepared.job.policyVersion,
-    });
-    await saveRevision(
-      job,
-      {
-        draft: result.draft,
-        review: result.review,
-        executionId: result.n8nExecutionId,
-      },
-      prepared.warning,
-    );
-  } catch (error) {
-    console.error("automation.revision failed:", error, {
-      projectId,
-      jobId: id,
-      version,
-      dispatched,
-    });
-    if (dispatched)
-      await revisions.failRevision(
-        projectId,
-        id,
-        version,
-        "outcome_unknown",
-        "Revision outcome could not be verified. Inspect n8n before retrying; the project slot remains reserved.",
-      );
-    else
-      await failRevision(
-        projectId,
-        id,
-        version,
-        preparationMessage(error),
-        true,
-      );
-  }
-}
-
 /** The custom message of a preparation error, or the generic start failure. */
 export const preparationMessage = (error: unknown, fallback = START_FAILURE) =>
   error instanceof AppError && error.message !== error.code
@@ -262,13 +182,7 @@ export async function failRevision(
   message: string,
   refundUnused: boolean,
 ) {
-  await revisions.failRevision(
-    projectId,
-    id,
-    version,
-    "needs_revision",
-    message,
-  );
+  await revisions.failRevision(projectId, id, version, message);
   await jobs.releaseSlot(projectId, id, refundUnused);
 }
 
@@ -340,24 +254,4 @@ export async function saveRevision(
   }
   await jobs.releaseSlot(projectId, id);
   if (passed) await requestReview(projectId, id);
-}
-
-function assertRevisionIdentity(
-  result: AutomationResult,
-  expected: {
-    projectId: string;
-    id: string;
-    version: number;
-    contextVersion: string;
-    policyVersion: string;
-  },
-) {
-  if (
-    result.artifactVersion !== expected.version ||
-    result.jobId !== expected.id ||
-    result.projectId !== expected.projectId ||
-    result.contextVersion !== expected.contextVersion ||
-    result.policyVersion !== expected.policyVersion
-  )
-    throw new AppError("CONFLICT");
 }

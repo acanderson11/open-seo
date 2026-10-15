@@ -5,7 +5,6 @@ import {
 } from "@/server/features/automation/ArticleFollowUpService";
 import { FeaturedImageRepository as featuredImages } from "@/server/features/automation/FeaturedImageRepository";
 import { changeArticleLifecycle } from "@/server/features/automation/ArticleLifecycleService";
-import { recoverUnknownArticle } from "@/server/features/automation/ManualArticleRecoveryService";
 import { BriefRepository } from "@/server/features/automation/BriefRepository";
 import { savePendingFeedback } from "@/server/features/automation/PendingFeedbackService";
 import { startQueuedRevision } from "@/server/features/automation/ArticleRevisionService";
@@ -125,24 +124,6 @@ export const decideAutomationDraft = createServerFn({ method: "POST" })
   });
 
 const detailRequest = projectRequest.extend({ jobId: z.string().uuid() });
-export const recoverUnknownAutomationArticle = createServerFn({
-  method: "POST",
-})
-  .middleware(requireProjectContext)
-  .validator(
-    detailRequest.extend({
-      version: z.number().int().positive().max(3),
-      title: z.string().trim().min(10).max(180),
-      metaDescription: z.string().trim().min(30).max(320),
-      bodyHtml: z.string().min(400).max(50000),
-      executionsStopped: z.literal(true),
-      contentAndSourcesChecked: z.literal(true),
-    }),
-  )
-  .handler(async ({ context, data }) => {
-    await authorize(context);
-    return recoverUnknownArticle(context.projectId, context.userId, data);
-  });
 export const getAutomationDraft = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(detailRequest)

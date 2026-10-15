@@ -82,13 +82,9 @@ export function draftBoardStage(state: string): BoardStage {
   )
     return "in_progress";
   if (
-    [
-      "held",
-      "failed",
-      "outcome_unknown",
-      "publication_unknown",
-      "publication_blocked",
-    ].includes(state)
+    ["held", "failed", "publication_unknown", "publication_blocked"].includes(
+      state,
+    )
   )
     return "blocked";
   if (["awaiting_approval", "needs_revision", "draft_ready"].includes(state))

@@ -1,12 +1,7 @@
 import type { getAutomationDraft } from "@/serverFunctions/automation";
 import { RevisionPendingNotice } from "./ArticleFeedbackHistory";
 
-const pendingRevisionStates = [
-  "needs_revision",
-  "revision_queued",
-  "revising",
-  "outcome_unknown",
-];
+const pendingRevisionStates = ["needs_revision", "revision_queued", "revising"];
 
 /** Version, status, and the messages a reviewer should see before the article itself. */
 export function DraftNotices({
@@ -52,11 +47,7 @@ export function DraftNotices({
         </p>
       )}
       {job.review && (
-        <p className="whitespace-pre-wrap text-sm">
-          {job.review.startsWith("Manual article recovery ")
-            ? "This version was imported after an uncertain automated revision. Its content and sources were checked for this manual recovery; agency approval is still required. The original draft and feedback remain in the history."
-            : job.review}
-        </p>
+        <p className="whitespace-pre-wrap text-sm">{job.review}</p>
       )}
     </>
   );

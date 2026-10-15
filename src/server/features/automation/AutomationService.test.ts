@@ -1,24 +1,7 @@
-vi.mock("./ArticleGenerationStart", () => ({
-  contentEngine: async () => "n8n",
-  startGeneration: vi.fn(),
-  generationInstanceId: (jobId: string, version: number) =>
-    `${jobId}-v${version}`,
-}));
-vi.mock("./ArticleResearchService", () => ({
-  researchArticle: vi.fn(async () => []),
-  RESEARCH_GUIDANCE: "Research first",
-}));
-vi.mock("./FeaturedImageService", () => ({
-  prepareFeaturedImage: vi.fn(async () => null),
-}));
-vi.mock("./DraftReviewService", () => ({
-  requestReview: vi.fn(),
-}));
 import { z } from "zod";
-import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
-vi.mock("./ContentLearningRepository", () => ({
-  ContentLearningRepository: { active: async () => [] },
-}));
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import type { startGeneration } from "./ArticleGenerationStart";
+
 const mocks = vi.hoisted(() => ({
   repo: {
     byRequest: vi.fn(),
@@ -32,7 +15,19 @@ const mocks = vi.hoisted(() => ({
   context: vi.fn(),
   render: vi.fn(),
   pages: vi.fn(),
-  env: vi.fn(),
+  start: vi.fn<typeof startGeneration>(),
+}));
+vi.mock("./ArticleGenerationStart", () => ({ startGeneration: mocks.start }));
+vi.mock("./ArticleResearchService", () => ({
+  researchArticle: vi.fn(async () => []),
+  RESEARCH_GUIDANCE: "Research first",
+}));
+vi.mock("./FeaturedImageService", () => ({
+  prepareFeaturedImage: vi.fn(async () => null),
+}));
+vi.mock("./DraftReviewService", () => ({ requestReview: vi.fn() }));
+vi.mock("./ContentLearningRepository", () => ({
+  ContentLearningRepository: { active: async () => [] },
 }));
 vi.mock("./AutomationRepository", () => ({ AutomationRepository: mocks.repo }));
 vi.mock(
@@ -45,12 +40,13 @@ vi.mock(
   }),
 );
 vi.mock("@/server/lib/scrape", () => ({ readPages: mocks.pages }));
-vi.mock("@/server/lib/runtime-env", () => ({ getOptionalEnvValue: mocks.env }));
 import {
+  buildDraftJob,
+  saveDraft,
   startDraft,
   validateTarget,
-  contextSnapshot,
 } from "./AutomationService";
+
 const input = {
   projectId: "p1",
   requestKey: "c240c513-cb4e-405f-8e0a-930f865f5170",
@@ -58,7 +54,6 @@ const input = {
   targetUrl: "https://example.com/page",
 };
 beforeEach(() => {
-  vi.resetAllMocks();
   mocks.repo.byRequest.mockResolvedValue(null);
   mocks.repo.policy.mockResolvedValue({
     enabled: 1,
@@ -74,18 +69,11 @@ beforeEach(() => {
   mocks.pages.mockResolvedValue({
     pages: [{ url: input.targetUrl, text: "Fictional page evidence" }],
   });
-  mocks.env.mockImplementation(async (name: string) =>
-    name === "AGENCY_N8N_ORIGIN"
-      ? "https://n8n.example.test"
-      : "synthetic-secret",
-  );
   mocks.repo.job.mockResolvedValue({ id: "job" });
 });
-afterEach(() => vi.unstubAllGlobals());
-describe("OpenSEO execution bridge", () => {
-  it("does not redispatch an existing request", async () => {
-    const fetch = vi.fn();
-    vi.stubGlobal("fetch", fetch);
+
+describe("starting a draft", () => {
+  it("does not start a second run for an existing request", async () => {
     mocks.repo.byRequest.mockResolvedValue({
       id: "saved",
       topic: input.topic,
@@ -94,10 +82,10 @@ describe("OpenSEO execution bridge", () => {
     expect(
       await startDraft("p1", "example.com", "actor", input),
     ).toHaveProperty("id", "saved");
-    expect(fetch).not.toHaveBeenCalled();
     expect(mocks.repo.reserve).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
   });
-  it("blocks a different site or credential-bearing target before any fetch", () => {
+  it("blocks a different site or credential-bearing target", () => {
     expect(() =>
       validateTarget("https://example.com.evil.test/page", "example.com"),
     ).toThrow();
@@ -105,108 +93,66 @@ describe("OpenSEO execution bridge", () => {
       validateTarget("https://user:pass@example.com/page", "example.com"),
     ).toThrow();
   });
-  it("preserves the reservation after an uncertain remote outcome", async () => {
-    const fetch = vi.fn().mockRejectedValue(new Error("timeout"));
-    vi.stubGlobal("fetch", fetch);
+  it("holds the job without starting a run when the monthly reservation fails", async () => {
+    mocks.repo.reserve.mockResolvedValue(false);
     await startDraft("p1", "example.com", "actor", input);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(mocks.repo.releaseSlot).not.toHaveBeenCalled();
-    expect(mocks.repo.update).toHaveBeenLastCalledWith(
-      "p1",
-      expect.any(String),
-      expect.objectContaining({ state: "outcome_unknown" }),
-    );
-  });
-  it("persists sanitized content from the native-context job and requires approval", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (request: Request) => {
-        const job = z
-          .record(z.string(), z.unknown())
-          .parse(await request.json());
-        expect(job.context).toContain("Native context fixture");
-        expect(job.context).toContain("Research first");
-        expect(job.profile).toBeUndefined();
-        return Response.json({
-          ...job,
-          n8nExecutionId: "fixture",
-          publicationPerformed: false,
-          draft: {
-            title: "Title",
-            metaDescription: "Description",
-            blocks: [
-              { type: "h2", text: "Heading" },
-              { type: "paragraph", text: "<script>bad()</script>" },
-              { type: "paragraph", text: "Useful text" },
-            ],
-          },
-          review: { pass: true, issues: [] },
-          html: "<script>untrusted HTML</script>",
-        });
-      }),
-    );
-    await startDraft("p1", "example.com", "actor", input);
-    const saved = z
-      .object({ state: z.string(), bodyHtml: z.string() })
-      .parse(mocks.repo.update.mock.lastCall?.[2]);
-    expect(saved.state).toBe("awaiting_approval");
-    expect(saved.bodyHtml).toContain("&lt;script&gt;");
-    expect(mocks.repo.releaseSlot).toHaveBeenCalledOnce();
+    expect(mocks.repo.update.mock.lastCall?.[2]).toMatchObject({
+      state: "held",
+    });
+    expect(mocks.start).not.toHaveBeenCalled();
   });
 });
 
-it("allows drafts with unanswered research questions to reach approval when quality passes", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (request: Request) => {
-      const payload = z
-        .record(z.string(), z.unknown())
-        .parse(await request.json());
-      expect(payload.savedBrief).toBeDefined();
-      return Response.json({
-        ...payload,
-        n8nExecutionId: "fixture",
-        publicationPerformed: false,
-        draft: {
+it("builds a saved-brief draft from the brief's own sources without rereading the site", async () => {
+  const job = await buildDraftJob({
+    projectId: "p1",
+    jobId: "job",
+    requestKey: input.requestKey,
+    topic: input.topic,
+    domain: "example.com",
+    targetUrl: input.targetUrl,
+    planned: {
+      rationale: "Saved brief",
+      sourceUrls: [input.targetUrl],
+      savedBrief: {
+        brief: {
           title: "Article",
-          metaDescription: "Description",
-          blocks: [
-            { type: "h2", text: "Decide" },
-            { type: "paragraph", text: "Useful explanation" },
-            { type: "paragraph", text: "Practical steps" },
-          ],
+          angle: "Useful",
+          outline: ["Decide"],
+          claims: [],
         },
-        review: { pass: true, issues: [] },
-      });
-    }),
-  );
-  const context = await contextSnapshot("p1");
-  await startDraft("p1", "example.com", "actor", input, {
-    rationale: "Saved brief",
-    sourceUrls: [input.targetUrl],
-    savedBrief: {
-      brief: {
-        title: "Article",
-        angle: "Useful",
-        outline: ["Decide"],
-        claims: [],
+        sources: [
+          { id: "e1", url: input.targetUrl, text: "Factual page evidence" },
+        ],
+        contextVersion: "ctx",
+        guidance: "Research gaps remain",
       },
-      sources: [
-        { id: "e1", url: input.targetUrl, text: "Factual page evidence" },
-      ],
-      contextVersion: context.version,
-      guidance: "Research gaps remain",
     },
   });
+  expect(job.context).toContain("Native context fixture");
+  expect(job.context).toContain("Research gaps remain");
+  expect(job.sources[0]?.id).toBe("e1");
+  expect(mocks.pages).not.toHaveBeenCalled();
+});
+
+it("stores escaped article HTML and asks for approval when the review passes", async () => {
+  await saveDraft("p1", "job", {
+    draft: {
+      title: "Title",
+      metaDescription: "Description",
+      blocks: [
+        { type: "h2", text: "Heading" },
+        { type: "paragraph", text: "<script>bad()</script>" },
+        { type: "paragraph", text: "Useful text" },
+      ],
+    },
+    review: { pass: true, issues: [] },
+    executionId: "app:job-v1",
+  });
   const saved = z
-    .object({
-      state: z.string(),
-      qualityPassed: z.number(),
-      message: z.string().nullable(),
-    })
+    .object({ state: z.string(), bodyHtml: z.string() })
     .parse(mocks.repo.update.mock.lastCall?.[2]);
   expect(saved.state).toBe("awaiting_approval");
-  expect(saved.qualityPassed).toBe(1);
-  expect(saved.message).toBeNull();
-  expect(mocks.pages).not.toHaveBeenCalled();
+  expect(saved.bodyHtml).toContain("&lt;script&gt;");
+  expect(mocks.repo.releaseSlot).toHaveBeenCalledOnce();
 });

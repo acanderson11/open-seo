@@ -2,7 +2,6 @@ import { ArticleDeliveryActions } from "./ArticleDeliveryActions";
 import { DraftFeedbackForm } from "./DraftFeedbackForm";
 import { BlockedDraftReview } from "./BlockedDraftReview";
 import { FeaturedImagePanel } from "./FeaturedImagePanel";
-import { UnknownRevisionRecovery } from "./UnknownRevisionRecovery";
 import { ArticleResearchGaps } from "./ArticleResearchGaps";
 import { ArticleFeedbackHistory } from "./ArticleFeedbackHistory";
 import { DraftNotices } from "./DraftNotices";
@@ -16,7 +15,6 @@ import {
   decideAutomationDraft,
   getAutomationDraft,
 } from "@/serverFunctions/automation";
-import { MAX_ARTICLE_VERSION } from "@/types/schemas/automation";
 export function Draft({
   projectId,
   jobId,
@@ -193,24 +191,6 @@ export function Draft({
           />
         )
       )}
-      {job.state === "outcome_unknown" &&
-        job.bodyHtml &&
-        job.version < MAX_ARTICLE_VERSION &&
-        job.approvalRole === "agency" &&
-        savedFeedback?.role === "agency" && (
-          <UnknownRevisionRecovery
-            key={job.version}
-            projectId={projectId}
-            jobId={jobId}
-            version={job.version}
-            title={job.title ?? ""}
-            metaDescription={job.metaDescription ?? ""}
-            onRecovered={() => {
-              void client.invalidateQueries({ queryKey: key });
-              void onChanged();
-            }}
-          />
-        )}
       {canReview && !!job.bodyHtml && (
         <DraftFeedbackForm
           version={job.version}

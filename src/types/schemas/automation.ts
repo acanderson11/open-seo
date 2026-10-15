@@ -65,19 +65,6 @@ export const articleBriefSchema = z.object({
     .max(30),
 });
 export type ArticleBrief = z.infer<typeof articleBriefSchema>;
-export const automationResultSchema = z.object({
-  jobId: z.string(),
-  projectId: z.string(),
-  contextVersion: z.string(),
-  policyVersion: z.string(),
-  n8nExecutionId: z.string().min(1).max(100),
-  artifactVersion: z.number().int().min(1).max(4).default(1),
-  publicationPerformed: z.literal(false),
-  draft: articleDraftSchema,
-  review: articleReviewSchema,
-});
-export type AutomationResult = z.infer<typeof automationResultSchema>;
-
 const escape = (value: string) =>
   value.replace(
     /[&<>"']/g,

@@ -10,26 +10,19 @@ import {
   startDraft,
   validateTarget,
 } from "./AutomationService";
-import { boundedJson } from "./AutomationResult";
 import { GscService } from "@/server/features/gsc/services/GscService";
 import { SearchOpportunityService } from "@/server/features/ga4/services/SearchOpportunityService";
 import { ProjectContextService } from "@/server/features/project-context/services/ProjectContextService";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import { discoverSiteUrls, readPages } from "@/server/lib/scrape";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
-import {
-  plannerResult,
-  plannerSelection,
-  dueForDraft,
-} from "@/types/schemas/autopilot";
-import { contentEngine } from "./ArticleGenerationStart";
+import { plannerSelection, dueForDraft } from "@/types/schemas/autopilot";
 import { generateStage } from "./ArticleGenerationService";
 import {
   PLANNER_INSTRUCTIONS,
   PLANNER_PROMPT,
 } from "./ArticleGenerationPrompts";
 import { AppError } from "@/server/lib/errors";
-import { executionHookRequest } from "./n8nExecution";
 export async function collectPlanningInput(projectId: string) {
   const project = await ProjectRepository.getProjectById(projectId);
   if (!project?.domain) throw new AppError("NOT_FOUND");
@@ -230,37 +223,20 @@ export async function producePlannedDraft(
     ? { projectId: job.projectId, id: job.id, state: job.state }
     : null;
 }
-/** Asks the content model, or the n8n planner on that engine, to pick one topic or skip. */
-async function planSelection(
+/** Asks the content model to pick one topic for this project, or skip. */
+function planSelection(
   input: Awaited<ReturnType<typeof collectPlanningInput>>,
 ) {
-  if ((await contentEngine()) === "app")
-    return generateStage(
-      {
-        projectId: input.projectId,
-        jobId: "planner",
-        version: 0,
-        name: "plan",
-      },
-      {
-        system: PLANNER_INSTRUCTIONS,
-        prompt: PLANNER_PROMPT,
-        input,
-        schema: plannerSelection,
-        maxOutputTokens: 2500,
-      },
-    );
-  const result = plannerResult.parse(
-    await boundedJson(
-      await fetch(await executionHookRequest("openseo-plan-content", input)),
-    ),
+  return generateStage(
+    { projectId: input.projectId, jobId: "planner", version: 0, name: "plan" },
+    {
+      system: PLANNER_INSTRUCTIONS,
+      prompt: PLANNER_PROMPT,
+      input,
+      schema: plannerSelection,
+      maxOutputTokens: 2500,
+    },
   );
-  if (
-    result.projectId !== input.projectId ||
-    result.contextVersion !== input.contextVersion
-  )
-    throw new AppError("CONFLICT");
-  return result.selection;
 }
 export async function scheduleAutopilot(env: Env) {
   if (await isHostedServerAuthMode()) return;

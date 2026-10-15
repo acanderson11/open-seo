@@ -1,8 +1,8 @@
 import type { ArticleBrief } from "@/types/schemas/automation";
 
 /**
- * Everything the model sees for one article version. Both engines build this
- * the same way; n8n receives it wrapped with its job, lease, and policy fields.
+ * Everything the model sees for one article version: Context, sources, the
+ * opportunity, and for revisions the previous draft with reviewer comments.
  */
 export type GenerationJob = {
   contextVersion: string;

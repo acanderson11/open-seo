@@ -1,15 +1,7 @@
 import { env } from "cloudflare:workers";
-import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { AutomationRepository as jobs } from "./AutomationRepository";
 import { ArticleRevisionRepository as revisions } from "./ArticleRevisionRepository";
 import type { GenerationRequest } from "./ArticleGenerationInput";
-
-/** Which engine writes articles: n8n (default) or the in-app Workflow. */
-export async function contentEngine(): Promise<"app" | "n8n"> {
-  return (await getOptionalEnvValue("AGENCY_CONTENT_ENGINE")) === "app"
-    ? "app"
-    : "n8n";
-}
 
 /** One Workflow instance per article version, so a version can never run twice. */
 export const generationInstanceId = (jobId: string, version: number) =>
@@ -41,14 +33,7 @@ export async function startGeneration(request: GenerationRequest) {
       "Article generation could not start. Nothing was charged; request it again.";
     if (version === 1)
       await jobs.update(projectId, jobId, { state: "failed", message });
-    else
-      await revisions.failRevision(
-        projectId,
-        jobId,
-        version - 1,
-        "needs_revision",
-        message,
-      );
+    else await revisions.failRevision(projectId, jobId, version - 1, message);
     await jobs.releaseSlot(projectId, jobId, true);
   }
 }

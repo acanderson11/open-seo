@@ -12,11 +12,6 @@ export const plannerSelection = z.union([
     sourceUrls: z.array(z.string().url()).min(1).max(5),
   }),
 ]);
-export const plannerResult = z.object({
-  projectId: z.string(),
-  contextVersion: z.string(),
-  selection: plannerSelection,
-});
 export function dueForDraft(target: number, completed: number, now: Date) {
   const days = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0),

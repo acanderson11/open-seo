@@ -1,4 +1,3 @@
-import { boundedResult } from "./AutomationResult";
 import { researchArticle, RESEARCH_GUIDANCE } from "./ArticleResearchService";
 import { ContentLearningRepository as learning } from "./ContentLearningRepository";
 import type { z } from "zod";
@@ -7,9 +6,8 @@ import { ProjectContextService } from "@/server/features/project-context/service
 import { readPages } from "@/server/lib/scrape";
 import { AppError } from "@/server/lib/errors";
 import { prepareFeaturedImage } from "./FeaturedImageService";
-import { executionHookRequest, executionSecret } from "./n8nExecution";
 import { requestReview } from "./DraftReviewService";
-import { contentEngine, startGeneration } from "./ArticleGenerationStart";
+import { startGeneration } from "./ArticleGenerationStart";
 import type { GenerationJob, PlannedDraft } from "./ArticleGenerationInput";
 import {
   renderArticle,
@@ -83,8 +81,6 @@ export async function startDraft(
       throw new AppError("CONFLICT");
     return existing;
   }
-  const engine = await contentEngine();
-  if (engine === "n8n") await executionSecret();
   const policy = await repo.policy(projectId);
   if (!policy?.enabled) throw new AppError("FORBIDDEN");
   const snapshot = await contextSnapshot(projectId);
@@ -123,17 +119,15 @@ export async function startDraft(
     });
     return repo.job(projectId, id);
   }
-  if (engine === "app")
-    await startGeneration({
-      projectId,
-      jobId: id,
-      version: 1,
-      domain,
-      topic: input.topic,
-      targetUrl,
-      planned,
-    });
-  else await runN8nDraft({ projectId, domain, input, planned, id, targetUrl });
+  await startGeneration({
+    projectId,
+    jobId: id,
+    version: 1,
+    domain,
+    topic: input.topic,
+    targetUrl,
+    planned,
+  });
   return repo.job(projectId, id);
 }
 
@@ -188,89 +182,6 @@ export async function buildDraftJob(draft: {
       ...externalSources,
     ],
   };
-}
-
-/** The n8n engine: one blocking webhook call that runs every stage remotely. */
-async function runN8nDraft({
-  projectId,
-  domain,
-  input,
-  planned,
-  id,
-  targetUrl,
-}: {
-  projectId: string;
-  domain: string;
-  input: z.infer<typeof draftRequestSchema>;
-  planned: PlannedDraft | undefined;
-  id: string;
-  targetUrl: string;
-}) {
-  let dispatched = false;
-  try {
-    await repo.update(projectId, id, { state: "preparing", message: null });
-    const job = await buildDraftJob({
-      projectId,
-      jobId: id,
-      requestKey: input.requestKey,
-      topic: input.topic,
-      domain,
-      targetUrl,
-      planned,
-    });
-    const request = await executionHookRequest("openseo-content-job", {
-      ...job,
-      jobId: id,
-      projectId,
-      feedback: [],
-      lease: {
-        jobId: id,
-        projectId,
-        reserved: true,
-        expiresAt: new Date(Date.now() + 300000).toISOString(),
-      },
-      policy: {
-        enabled: true,
-        paused: false,
-        contentAllowed: true,
-        approval: (await repo.policy(projectId))?.approval,
-        publication: "manual",
-      },
-    });
-    await repo.update(projectId, id, { state: "running" });
-    dispatched = true;
-    const result = await boundedResult(await fetch(request));
-    if (
-      result.jobId !== id ||
-      result.projectId !== projectId ||
-      result.contextVersion !== job.contextVersion ||
-      result.policyVersion !== job.policyVersion
-    )
-      throw new AppError("CONFLICT");
-    await saveDraft(projectId, id, {
-      draft: result.draft,
-      review: result.review,
-      executionId: result.n8nExecutionId,
-    });
-  } catch (error) {
-    console.error("automation.draft failed:", error, {
-      projectId,
-      jobId: id,
-      dispatched,
-    });
-    if (dispatched)
-      await repo.update(projectId, id, {
-        state: "outcome_unknown",
-        message:
-          "The remote outcome could not be verified. Inspect n8n before any retry; this project's slot remains reserved.",
-      });
-    else
-      await failDraft(
-        projectId,
-        id,
-        "Preparation failed before dispatch. Check Context and the source page.",
-      );
-  }
 }
 
 /** Stores a generated first draft, adds its image, frees the slot, and requests review. */

@@ -219,10 +219,10 @@ function SavedBrief({ projectId, id }: { projectId: string; id: string }) {
                 : "Create article draft from this brief"}
             </button>
             <p>
-              Uses the existing n8n writer and independent editorial review. One
-              draft per brief; repeat clicks reopen the same job. Unanswered
-              research questions are optional and do not prevent review or
-              approval.
+              Writes the article, then has it independently reviewed and
+              corrected once if needed. One draft per brief; repeat clicks
+              reopen the same job. Unanswered research questions are optional
+              and do not prevent review or approval.
             </p>
             {createDraft.isError && (
               <p role="alert" className="text-error">

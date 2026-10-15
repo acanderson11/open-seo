@@ -82,6 +82,6 @@ it("changes draft priority without clearing approval, and scopes the mutation", 
   expect(draftBoardStage(typeof row?.state === "string" ? row.state : "")).toBe(
     "review",
   );
-  expect(draftBoardStage("outcome_unknown")).toBe("blocked");
+  expect(draftBoardStage("failed")).toBe("blocked");
   expect(draftBoardStage("ready_for_manual_publication")).toBe("ready");
 });

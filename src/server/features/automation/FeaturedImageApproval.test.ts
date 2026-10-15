@@ -156,13 +156,7 @@ describe("featured images across approval and revision", () => {
       }),
     ).toBe(false);
     expect(
-      await revisions.failRevision(
-        "p1",
-        "revise-image",
-        1,
-        "outcome_unknown",
-        "stale failure",
-      ),
+      await revisions.failRevision("p1", "revise-image", 1, "stale failure"),
     ).toBe(false);
     expect((await repo.job("p1", "revise-image")).state).toBe(
       "awaiting_approval",

@@ -1,11 +1,6 @@
-vi.mock("./ArticleGenerationStart", () => ({
-  contentEngine: async () => "n8n",
-  startGeneration: vi.fn(),
-  generationInstanceId: (jobId: string, version: number) =>
-    `${jobId}-v${version}`,
-}));
-vi.mock("./ArticleGenerationService", () => ({ generateStage: vi.fn() }));
-import { beforeEach, afterEach, it, expect, vi } from "vitest";
+import { beforeEach, it, expect, vi } from "vitest";
+const m = vi.hoisted(() => ({ plan: vi.fn() }));
+vi.mock("./ArticleGenerationService", () => ({ generateStage: m.plan }));
 vi.mock("./ContentLearningRepository", () => ({
   ContentLearningRepository: {},
 }));
@@ -22,9 +17,6 @@ vi.mock("./AutomationService", () => ({
   validateTarget: vi.fn(),
 }));
 vi.mock("./DraftReviewService", () => ({ notifyReviewer: vi.fn() }));
-vi.mock("./WordpressPublication", () => ({
-  boundedJson: async (r: Response) => r.json(),
-}));
 vi.mock("@/server/features/gsc/services/GscService", () => ({
   GscService: {},
 }));
@@ -39,10 +31,6 @@ vi.mock("@/server/features/projects/repositories/ProjectRepository", () => ({
   ProjectRepository: {},
 }));
 vi.mock("@/server/lib/runtime-env", () => ({
-  getOptionalEnvValue: async (name: string) =>
-    name === "AGENCY_N8N_ORIGIN"
-      ? "https://n8n.example.test"
-      : "synthetic-test-secret",
   isHostedServerAuthMode: async () => false,
 }));
 import { selectOpportunity } from "./AutopilotService";
@@ -80,25 +68,14 @@ const input: Parameters<typeof selectOpportunity>[0] = {
     inventoryReadPages: 1,
   },
 };
-beforeEach(() =>
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(
-      Response.json({
-        projectId: "p1",
-        contextVersion: "ctx",
-        selection: {
-          action: "draft",
-          topic: "CRM implementation",
-          rationale: "Business priority",
-          evidenceIds: ["business-targets"],
-          sourceUrls: ["https://example.com/"],
-        },
-      }),
-    ),
-  ),
-);
-afterEach(() => vi.unstubAllGlobals());
+const proposal = (topic: string) => ({
+  action: "draft",
+  topic,
+  rationale: "Business priority",
+  evidenceIds: ["business-targets"],
+  sourceUrls: ["https://example.com/"],
+});
+beforeEach(() => m.plan.mockResolvedValue(proposal("CRM implementation")));
 it("holds a proposed article with strong existing-page overlap", async () => {
   const result = await selectOpportunity(input);
   expect(result.action).toBe("skip");
@@ -106,34 +83,8 @@ it("holds a proposed article with strong existing-page overlap", async () => {
     expect(result.reason).toContain("https://example.com/crm/");
 });
 it("allows a distinct topic through existing evidence validation", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(
-      Response.json({
-        projectId: "p1",
-        contextVersion: "ctx",
-        selection: {
-          action: "draft",
-          topic: "Preparing customer records for migration",
-          rationale: "Business priority",
-          evidenceIds: ["business-targets"],
-          sourceUrls: ["https://example.com/"],
-        },
-      }),
-    ),
+  m.plan.mockResolvedValue(
+    proposal("Preparing customer records for migration"),
   );
   expect((await selectOpportunity(input)).action).toBe("draft");
-});
-it("rejects a response for another project", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(
-      Response.json({
-        projectId: "p2",
-        contextVersion: "ctx",
-        selection: { action: "skip", reason: "Skip" },
-      }),
-    ),
-  );
-  await expect(selectOpportunity(input)).rejects.toThrow("CONFLICT");
 });

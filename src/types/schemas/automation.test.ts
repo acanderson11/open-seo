@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderArticle, automationResultSchema } from "./automation";
+import { renderArticle, articleDraftSchema } from "./automation";
 describe("execution artifact boundary", () => {
   it("renders only supported markup and escapes executable content", () => {
     expect(
@@ -15,11 +15,12 @@ describe("execution artifact boundary", () => {
       "<p>&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</p>\n<ul><li>a &amp; b</li></ul>",
     );
   });
-  it("rejects arbitrary HTML and publication claims from the workflow", () => {
+  it("accepts model output only as structured blocks, never raw HTML", () => {
     expect(
-      automationResultSchema.safeParse({
-        publicationPerformed: true,
-        draft: { html: "<script>bad()</script>" },
+      articleDraftSchema.safeParse({
+        title: "Title",
+        metaDescription: "Description",
+        html: "<script>bad()</script>",
       }).success,
     ).toBe(false);
   });
