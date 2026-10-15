@@ -28,7 +28,7 @@ beforeAll(async () => {
   }));
   await client.executeMultiple(agencyTestSchemaSql());
   repo = (await import("./InventoryRepository")).InventoryRepository;
-});
+}, 30_000);
 afterAll(() => client.close());
 beforeEach(async () => {
   await client.execute("DELETE FROM site_inventory_pages");

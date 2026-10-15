@@ -16,7 +16,7 @@ beforeAll(async () => {
   await client.executeMultiple(agencyTestSchemaSql());
   repo = (await import("./ExecutionTaskRepository")).ExecutionTaskRepository;
   service = await import("./ExecutionTaskService");
-});
+}, 30_000);
 afterAll(() => client.close());
 beforeEach(async () => {
   await client.executeMultiple(

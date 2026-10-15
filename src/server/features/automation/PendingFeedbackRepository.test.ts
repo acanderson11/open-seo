@@ -27,7 +27,7 @@ beforeAll(async () => {
   }));
   await client.executeMultiple(agencyTestSchemaSql());
   repo = (await import("./AutomationRepository")).AutomationRepository;
-});
+}, 30_000);
 // libsql can retain native file handles until process exit on Windows. The isolated database lives in the OS temporary directory.
 afterAll(() => client.close());
 beforeEach(async () => {

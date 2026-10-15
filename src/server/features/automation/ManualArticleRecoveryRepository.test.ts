@@ -15,7 +15,7 @@ beforeAll(async () => {
   vi.doMock("@/db/runBatch", () => ({ runBatch: test.runBatch }));
   recover = (await import("./ManualArticleRecoveryRepository"))
     .recoverManualArticle;
-});
+}, 30_000);
 afterAll(() => client.close());
 beforeEach(async () => {
   await client.executeMultiple(

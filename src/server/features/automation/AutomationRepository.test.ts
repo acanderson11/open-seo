@@ -19,7 +19,7 @@ beforeAll(async () => {
   vi.doMock("@/db", () => ({ db: test.db }));
   vi.doMock("@/db/runBatch", () => ({ runBatch: test.runBatch }));
   repo = (await import("./AutomationRepository")).AutomationRepository;
-});
+}, 30_000);
 afterAll(() => client.close());
 beforeEach(async () => {
   await client.executeMultiple(

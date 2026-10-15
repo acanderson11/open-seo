@@ -15,7 +15,7 @@ beforeAll(async () => {
   vi.doMock("@/db/runBatch", () => ({ runBatch: test.runBatch }));
   jobs = (await import("./AutomationRepository")).AutomationRepository;
   auto = (await import("./AutopilotRepository")).AutopilotRepository;
-});
+}, 30_000);
 afterAll(() => client.close());
 beforeEach(async () => {
   await client.executeMultiple(

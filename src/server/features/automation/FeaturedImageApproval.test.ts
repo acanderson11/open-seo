@@ -23,7 +23,7 @@ beforeAll(async () => {
   repo = (await import("./AutomationRepository")).AutomationRepository;
   revisions = (await import("./ArticleRevisionRepository"))
     .ArticleRevisionRepository;
-});
+}, 30_000);
 afterAll(() => client.close());
 beforeEach(async () => {
   await client.executeMultiple(

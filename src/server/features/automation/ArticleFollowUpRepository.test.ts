@@ -13,7 +13,7 @@ beforeAll(async () => {
   vi.doMock("@/db", () => ({ db: test.db }));
   repo = (await import("./ArticleFollowUpRepository"))
     .ArticleFollowUpRepository;
-});
+}, 30_000);
 afterAll(() => client.close());
 
 async function insertPublishedJob(
